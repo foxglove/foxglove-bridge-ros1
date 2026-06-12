@@ -252,7 +252,7 @@ TEST(SmokeTest, FetchAsset) {
 
   // Allowlisted asset, shipped as a test fixture in this package.
   auto responseFuture = client->waitForFetchAssetResponse();
-  client->fetchAsset("package://foxglove_bridge_ros1/tests/assets/smoke.urdf", 1);
+  client->fetchAsset("package://foxglove_bridge/tests/assets/smoke.urdf", 1);
   ASSERT_EQ(std::future_status::ready, responseFuture.wait_for(DEFAULT_TIMEOUT));
   auto response = responseFuture.get();
   EXPECT_EQ(response.requestId, 1u);
@@ -263,7 +263,7 @@ TEST(SmokeTest, FetchAsset) {
 
   // Path traversal must be rejected.
   responseFuture = client->waitForFetchAssetResponse();
-  client->fetchAsset("package://foxglove_bridge_ros1/../../../etc/passwd", 2);
+  client->fetchAsset("package://foxglove_bridge/../../../etc/passwd", 2);
   ASSERT_EQ(std::future_status::ready, responseFuture.wait_for(DEFAULT_TIMEOUT));
   response = responseFuture.get();
   EXPECT_EQ(response.requestId, 2u);

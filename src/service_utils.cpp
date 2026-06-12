@@ -8,7 +8,7 @@
 #include <ros/this_node.h>
 #include <ros/transport/transport_tcp.h>
 
-#include <foxglove_bridge_ros1/service_utils.hpp>
+#include <foxglove_bridge/service_utils.hpp>
 
 namespace foxglove_bridge {
 

@@ -9,11 +9,11 @@
 #include <rosgraph_msgs/Clock.h>
 #include <xmlrpcpp/XmlRpcValue.h>
 
-#include <foxglove_bridge_ros1/capabilities.hpp>
-#include <foxglove_bridge_ros1/utils.hpp>
-#include <foxglove_bridge_ros1/generic_service.hpp>
-#include <foxglove_bridge_ros1/ros1_foxglove_bridge.hpp>
-#include <foxglove_bridge_ros1/service_utils.hpp>
+#include <foxglove_bridge/capabilities.hpp>
+#include <foxglove_bridge/utils.hpp>
+#include <foxglove_bridge/generic_service.hpp>
+#include <foxglove_bridge/ros1_foxglove_bridge.hpp>
+#include <foxglove_bridge/service_utils.hpp>
 
 namespace foxglove_bridge {
 

@@ -1,13 +1,14 @@
-# foxglove_bridge_ros1
+# foxglove_bridge (ROS 1)
 
 ROS 1 Foxglove bridge. Connects ROS 1 topics, services, and parameters to
 Foxglove clients over a local WebSocket server and, when enabled, the
 Foxglove remote access gateway (LiveKit/WebRTC — handled entirely by the
 SDK). Deliberately a parallel implementation to the ROS 2 `foxglove_bridge`
 (which lives in the [foxglove-sdk](https://github.com/foxglove/foxglove-sdk)
-repository), sharing no code with it; the transport-facing layer
-(transport_manager, capabilities, logging, types, utils) is a copy of the
-equivalent code in the ROS 2 bridge.
+repository): the two packages share a name — like the legacy
+`ros-foxglove-bridge`, which served both ROS versions under one name — but
+no code; the transport-facing layer (transport_manager, capabilities,
+logging, types, utils) is a copy of the equivalent code in the ROS 2 bridge.
 
 ## Building
 
@@ -40,7 +41,7 @@ docker run --rm --network host \
   -e ROS_HOSTNAME=localhost \
   -e FOXGLOVE_DEVICE_TOKEN=<token> \
   foxglove-bridge-ros1 \
-  rosrun foxglove_bridge_ros1 foxglove_bridge _remote_access:=true
+  rosrun foxglove_bridge foxglove_bridge _remote_access:=true
 ```
 
 ### Assets in a sidecar deployment
@@ -95,8 +96,3 @@ the ws-protocol, using the test client shared with the ROS 2 bridge tests.
 - Remote-access QoS classification for latched topics is observational: a
   topic is only classified Reliable after a latched publisher has been seen
   (ROS 1 reveals latching only in per-connection headers).
-- `ROS_VERSION == 1` conditions plus a `COLCON_IGNORE` marker keep ROS 2
-  colcon/rosdep away from this package; the Dockerfile removes the marker
-  in its private workspace copy because modern `catkin_pkg` honors
-  COLCON_IGNORE as well. (These are holdovers from when the package lived
-  in the foxglove-sdk monorepo next to the ROS 2 bridge.)

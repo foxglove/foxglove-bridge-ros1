@@ -5,8 +5,8 @@
 #include <xmlrpcpp/XmlRpcException.h>
 #include <xmlrpcpp/XmlRpcValue.h>
 
-#include <foxglove_bridge_ros1/utils.hpp>
-#include <foxglove_bridge_ros1/param_interface.hpp>
+#include <foxglove_bridge/utils.hpp>
+#include <foxglove_bridge/param_interface.hpp>
 
 namespace foxglove_bridge {
 

@@ -19,9 +19,9 @@
 #include <topic_tools/shape_shifter.h>
 
 #include <foxglove/foxglove.hpp>
-#include <foxglove_bridge_ros1/transport_manager.hpp>
-#include <foxglove_bridge_ros1/types.hpp>
-#include <foxglove_bridge_ros1/param_interface.hpp>
+#include <foxglove_bridge/transport_manager.hpp>
+#include <foxglove_bridge/types.hpp>
+#include <foxglove_bridge/param_interface.hpp>
 
 namespace foxglove_bridge {
 

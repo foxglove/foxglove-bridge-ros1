@@ -22,8 +22,8 @@
 #include <foxglove/remote_access.hpp>
 #endif
 
-#include <foxglove_bridge_ros1/logging.hpp>
-#include <foxglove_bridge_ros1/types.hpp>
+#include <foxglove_bridge/logging.hpp>
+#include <foxglove_bridge/types.hpp>
 
 namespace foxglove_bridge {
 
