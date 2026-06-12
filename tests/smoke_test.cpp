@@ -13,6 +13,7 @@
 
 #include <chrono>
 #include <future>
+#include <map>
 #include <memory>
 #include <string>
 #include <unistd.h>
@@ -297,6 +298,92 @@ TEST(SmokeTest, Parameters) {
   ASSERT_EQ(params.size(), 1u);
   EXPECT_EQ(params[0].name(), "/smoke/param");
   EXPECT_EQ(params[0].value()->get<std::string>(), "pushed");
+}
+
+TEST(SmokeTest, ParameterTypes) {
+  // Round-trip every non-string parameter type through both conversion
+  // directions: master -> client (valueFromRosParam) on get, and
+  // client -> master (toRosParam) on set.
+  ros::NodeHandle nh;
+  nh.setParam("/types/int", 42);
+  nh.setParam("/types/double", 2.5);
+  nh.setParam("/types/bool", true);
+  nh.setParam("/types/array", std::vector<int>{1, 2, 3});
+  XmlRpc::XmlRpcValue dict;
+  dict["x"] = 7;
+  dict["y"] = std::string("z");
+  nh.setParam("/types/dict", dict);
+
+  auto client = std::make_shared<Client>();
+  ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
+
+  // Get direction.
+  auto getFuture = client->waitForParameters("typeget");
+  client->getParameters(
+    {"/types/int", "/types/double", "/types/bool", "/types/array", "/types/dict"}, "typeget"
+  );
+  ASSERT_EQ(std::future_status::ready, getFuture.wait_for(DEFAULT_TIMEOUT));
+  const auto params = getFuture.get();
+  std::map<std::string, const foxglove::Parameter*> byName;
+  for (const auto& p : params) {
+    byName[std::string(p.name())] = &p;
+  }
+  ASSERT_EQ(byName.count("/types/int"), 1u);
+  EXPECT_EQ(byName["/types/int"]->value()->get<int64_t>(), 42);
+  EXPECT_DOUBLE_EQ(byName["/types/double"]->value()->get<double>(), 2.5);
+  EXPECT_EQ(byName["/types/bool"]->value()->get<bool>(), true);
+  const auto arr = byName["/types/array"]->value()->get<std::vector<foxglove::ParameterValueView>>();
+  ASSERT_EQ(arr.size(), 3u);
+  EXPECT_EQ(arr[0].get<int64_t>(), 1);
+  EXPECT_EQ(arr[2].get<int64_t>(), 3);
+  bool foundX = false;
+  for (const auto& [key, value] : byName["/types/dict"]->value()->get<foxglove::ParameterValueView::Dict>()) {
+    if (key == "x") {
+      EXPECT_EQ(value.get<int64_t>(), 7);
+      foundX = true;
+    }
+  }
+  EXPECT_TRUE(foundX);
+
+  // Set direction: set each type from the client and read it back on the
+  // master. Parameter is move-only, so build the list element by element.
+  std::vector<foxglove::Parameter> toSet;
+  toSet.emplace_back("/types/set_int", int64_t(11));
+  toSet.emplace_back("/types/set_double", 1.5);
+  toSet.emplace_back("/types/set_bool", true);
+  std::vector<foxglove::ParameterValue> setArr;
+  setArr.emplace_back(int64_t(8));
+  setArr.emplace_back(int64_t(9));
+  toSet.emplace_back(
+    "/types/set_array", foxglove::ParameterType::None, foxglove::ParameterValue(std::move(setArr))
+  );
+  std::map<std::string, foxglove::ParameterValue> setDict;
+  setDict.insert({"k", foxglove::ParameterValue(int64_t(5))});
+  toSet.emplace_back(
+    "/types/set_dict", foxglove::ParameterType::None, foxglove::ParameterValue(std::move(setDict))
+  );
+
+  auto setFuture = client->waitForParameters("typeset");
+  client->setParameters(toSet, "typeset");
+  ASSERT_EQ(std::future_status::ready, setFuture.wait_for(DEFAULT_TIMEOUT));
+
+  int mInt = 0;
+  ASSERT_TRUE(nh.getParam("/types/set_int", mInt));
+  EXPECT_EQ(mInt, 11);
+  double mDouble = 0.0;
+  ASSERT_TRUE(nh.getParam("/types/set_double", mDouble));
+  EXPECT_DOUBLE_EQ(mDouble, 1.5);
+  bool mBool = false;
+  ASSERT_TRUE(nh.getParam("/types/set_bool", mBool));
+  EXPECT_TRUE(mBool);
+  std::vector<int> mArray;
+  ASSERT_TRUE(nh.getParam("/types/set_array", mArray));
+  ASSERT_EQ(mArray.size(), 2u);
+  EXPECT_EQ(mArray[0], 8);
+  XmlRpc::XmlRpcValue mDict;
+  ASSERT_TRUE(nh.getParam("/types/set_dict", mDict));
+  ASSERT_EQ(mDict.getType(), XmlRpc::XmlRpcValue::TypeStruct);
+  EXPECT_EQ(static_cast<int>(mDict["k"]), 5);
 }
 
 TEST(SmokeTest, FetchAsset) {

@@ -9,8 +9,10 @@
 #include <functional>
 #include <future>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <shared_mutex>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -45,6 +47,14 @@ inline void from_json(const nlohmann::json& j, foxglove::ParameterValue& p) {
       foxglove::ParameterValue paramValue("dummy");
       from_json(value, paramValue);
       values.emplace_back(std::move(paramValue));
+    }
+    p = foxglove::ParameterValue(std::move(values));
+  } else if (j.is_object()) {
+    std::map<std::string, foxglove::ParameterValue> values;
+    for (const auto& [key, value] : j.items()) {
+      foxglove::ParameterValue paramValue("dummy");
+      from_json(value, paramValue);
+      values.insert({key, std::move(paramValue)});
     }
     p = foxglove::ParameterValue(std::move(values));
   } else {
@@ -84,6 +94,10 @@ inline void from_json(const nlohmann::json& j, foxglove::Parameter& p) {
     }
 
     p = foxglove::Parameter(name, type, foxglove::ParameterValue(std::move(values)));
+  } else if (j["value"].is_object()) {
+    foxglove::ParameterValue paramValue("dummy");
+    from_json(j["value"], paramValue);
+    p = foxglove::Parameter(name, foxglove::ParameterType::None, std::move(paramValue));
   } else {
     throw std::runtime_error(
       "Encountered unknown type for parameter " + j["name"].get<std::string>()
@@ -115,6 +129,13 @@ inline void to_json(nlohmann::json& j, const foxglove::ParameterValueView& p) {
       nlohmann::json valueJson;
       to_json(valueJson, value);
       j.push_back(std::move(valueJson));
+    }
+  } else if (p.is<foxglove::ParameterValueView::Dict>()) {
+    j = nlohmann::json::object();
+    for (const auto& [key, value] : p.get<foxglove::ParameterValueView::Dict>()) {
+      nlohmann::json valueJson;
+      to_json(valueJson, value);
+      j[std::string(key)] = std::move(valueJson);
     }
   } else {
     throw std::runtime_error("Encountered unknown type for ParameterValueView");
