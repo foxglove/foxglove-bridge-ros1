@@ -281,6 +281,10 @@ void Ros1FoxgloveBridge::updateAdvertisedTopics(const std::vector<TopicAndDataty
   // Collect channels to close outside the lock to avoid deadlock:
   // channel.close() can fire onUnsubscribe callbacks that re-acquire _subscriptionsMutex.
   std::vector<foxglove::RawChannel> channelsToClose;
+  // ROS subscriptions are likewise destroyed outside the lock: subscriber
+  // shutdown blocks until in-flight callbacks return, and rosMessageHandler
+  // takes _subscriptionsMutex (see onUnsubscribe).
+  std::vector<ChannelSubscription> subscriptionsToRelease;
 
   {
     std::lock_guard<std::mutex> lock(_subscriptionsMutex);
@@ -295,7 +299,11 @@ void Ros1FoxgloveBridge::updateAdvertisedTopics(const std::vector<TopicAndDataty
         const auto channelId = channel.id();
         ROS_INFO("Removing channel %lu for topic \"%s\" (%s)", channelId, topic.c_str(),
                  schemaName.c_str());
-        _subscriptions.erase(channelId);
+        auto subIt = _subscriptions.find(channelId);
+        if (subIt != _subscriptions.end()) {
+          subscriptionsToRelease.push_back(std::move(subIt->second));
+          _subscriptions.erase(subIt);
+        }
         {
           std::lock_guard<std::mutex> latchedLock(_latchedChannelsMutex);
           _latchedChannels.erase(channelId);
@@ -504,6 +512,12 @@ void Ros1FoxgloveBridge::onUnsubscribe(ChannelId channelId, ClientId clientId, b
   ROS_INFO("%sreceived unsubscribe request for channel %lu from client %u",
            isGateway ? "Gateway: " : "", channelId, clientId);
 
+  // Declared before the lock so it is destroyed after the lock is released:
+  // shutting down a ros::Subscriber blocks until in-flight callbacks return,
+  // and rosMessageHandler takes _subscriptionsMutex — destroying the
+  // subscription under the lock deadlocks against an in-flight message.
+  ChannelSubscription releasedSubscription;
+
   std::lock_guard<std::mutex> lock(_subscriptionsMutex);
 
   auto subIt = _subscriptions.find(channelId);
@@ -521,6 +535,7 @@ void Ros1FoxgloveBridge::onUnsubscribe(ChannelId channelId, ClientId clientId, b
 
   if (subIt->second.wsClientIds.empty() && subIt->second.gatewayClientIds.empty()) {
     ROS_INFO("Cleaned up ROS subscription for channel %lu (no more subscribers)", channelId);
+    releasedSubscription = std::move(subIt->second);
     _subscriptions.erase(subIt);
     std::lock_guard<std::mutex> latchedLock(_latchedChannelsMutex);
     _latchedChannels.erase(channelId);
