@@ -54,24 +54,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libtinyxml2-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# ROS 1 python build tooling from PyPI (the ROS apt repo has no jammy/noetic).
-# empy is pinned: genmsg/em templates break with empy >= 4.
-# pycryptodomex/python-gnupg are runtime deps of the rosbag python tools.
+# ROS 1 python build tooling from PyPI (the ROS apt repo has no jammy/noetic),
+# pinned for reproducible builds. empy must stay < 4: genmsg/em templates
+# break with empy >= 4. pycryptodomex/python-gnupg are runtime deps of the
+# rosbag python tools.
 RUN pip3 install --no-cache-dir \
-        rosinstall_generator \
-        vcstool \
-        catkin-pkg \
-        rospkg \
+        vcstool==0.3.0 \
+        catkin-pkg==1.1.0 \
+        rospkg==1.6.1 \
         empy==3.3.4 \
-        defusedxml \
-        netifaces \
-        pycryptodomex \
-        python-gnupg
+        defusedxml==0.7.1 \
+        netifaces==0.11.0 \
+        pycryptodomex==3.23.0 \
+        python-gnupg==0.5.6
 
-RUN mkdir -p /ros_ws/src \
-    && rosinstall_generator ros_comm topic_tools ros_babel_fish resource_retriever \
-        --rosdistro noetic --deps --tar > /ros_ws/noetic.rosinstall \
-    && vcs import /ros_ws/src < /ros_ws/noetic.rosinstall
+# Pinned Noetic sources: one released tarball per package, checked into the
+# repo so builds are reproducible. Regenerate with:
+#   rosinstall_generator ros_comm topic_tools ros_babel_fish \
+#       resource_retriever --rosdistro noetic --deps --tar > noetic.rosinstall
+COPY noetic.rosinstall /ros_ws/noetic.rosinstall
+RUN mkdir -p /ros_ws/src && vcs import /ros_ws/src < /ros_ws/noetic.rosinstall
 
 # jammy's log4cxx 0.12 changed LoggerPtr to a std::shared_ptr, which noetic's
 # rosconsole (1.14.3) predates. Swap in the ROS One (ros-o) fork of rosconsole,
