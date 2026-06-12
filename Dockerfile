@@ -109,6 +109,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         nlohmann-json3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Pre-fetch the SDK release zip in a layer keyed only on CMakeLists.txt and
+# package.xml: configuring the package without its sources runs the
+# FetchContent download (with its SHA check) into FETCHCONTENT_BASE_DIR and
+# then fails at add_library — by design, hence the `|| true` and the explicit
+# check that the download landed. Source edits then rebuild the bridge
+# without re-downloading the SDK, and the version/SHA pins stay
+# single-sourced in CMakeLists.txt.
+COPY CMakeLists.txt package.xml /tmp/sdk-prefetch/
+RUN . /opt/ros/noetic/setup.sh \
+    && mkdir -p /tmp/sdk-prefetch/build \
+    && cd /tmp/sdk-prefetch/build \
+    && (cmake .. -DFETCHCONTENT_BASE_DIR=/sdk/fetchcontent \
+        > /tmp/sdk-prefetch.log 2>&1 || true) \
+    && (test -d /sdk/fetchcontent/foxglove_sdk-src \
+        || (cat /tmp/sdk-prefetch.log && false)) \
+    && rm -rf /tmp/sdk-prefetch /tmp/sdk-prefetch.log
+
 # The repo root is the package; .dockerignore keeps .git out of the copy.
 COPY . /bridge_ws/src/foxglove_bridge
 
@@ -121,7 +138,8 @@ RUN . /opt/ros/noetic/setup.sh \
         --cmake-args \
         --no-warn-unused-cli \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DFOXGLOVE_BRIDGE_REMOTE_ACCESS=${FOXGLOVE_BRIDGE_REMOTE_ACCESS}
+        -DFOXGLOVE_BRIDGE_REMOTE_ACCESS=${FOXGLOVE_BRIDGE_REMOTE_ACCESS} \
+        -DFETCHCONTENT_BASE_DIR=/sdk/fetchcontent
 
 COPY entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
