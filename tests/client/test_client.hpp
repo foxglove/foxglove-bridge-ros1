@@ -1,5 +1,10 @@
 #pragma once
 
+#include <nlohmann/json.hpp>
+#include <websocketpp/client.hpp>
+#include <websocketpp/common/memory.hpp>
+#include <websocketpp/common/thread.hpp>
+
 #include <atomic>
 #include <functional>
 #include <future>
@@ -7,11 +12,6 @@
 #include <shared_mutex>
 #include <utility>
 #include <vector>
-
-#include <nlohmann/json.hpp>
-#include <websocketpp/client.hpp>
-#include <websocketpp/common/memory.hpp>
-#include <websocketpp/common/thread.hpp>
 
 #include "protocol_types.hpp"
 
@@ -84,8 +84,9 @@ inline void from_json(const nlohmann::json& j, foxglove::Parameter& p) {
 
     p = foxglove::Parameter(name, type, foxglove::ParameterValue(std::move(values)));
   } else {
-    throw std::runtime_error("Encountered unknown type for parameter " +
-                             j["name"].get<std::string>());
+    throw std::runtime_error(
+      "Encountered unknown type for parameter " + j["name"].get<std::string>()
+    );
   }
 }
 
@@ -140,10 +141,9 @@ inline void to_json(nlohmann::json& j, const std::vector<foxglove::Parameter>& p
 }
 
 inline void to_json(nlohmann::json& j, const ClientAdvertisement& p) {
-  j = nlohmann::json{{"id", p.channelId},
-                     {"topic", p.topic},
-                     {"encoding", p.encoding},
-                     {"schemaName", p.schemaName}};
+  j = nlohmann::json{
+    {"id", p.channelId}, {"topic", p.topic}, {"encoding", p.encoding}, {"schemaName", p.schemaName}
+  };
 }
 
 inline void from_json(const nlohmann::json& j, Channel& c) {
@@ -171,7 +171,7 @@ using TextMessageHandler = std::function<void(const std::string&)>;
 using BinaryMessageHandler = std::function<void(const uint8_t*, size_t)>;
 using OpCode = websocketpp::frame::opcode::value;
 
-template <typename ClientConfiguration>
+template<typename ClientConfiguration>
 class Client {
 public:
   using ClientType = websocketpp::client<ClientConfiguration>;
@@ -186,7 +186,8 @@ public:
     _endpoint.start_perpetual();
 
     _endpoint.set_message_handler(
-      bind(&Client::messageHandler, this, std::placeholders::_1, std::placeholders::_2));
+      bind(&Client::messageHandler, this, std::placeholders::_1, std::placeholders::_2)
+    );
 
     _thread.reset(new websocketpp::lib::thread(&ClientType::run, &_endpoint));
   }
@@ -197,9 +198,10 @@ public:
     _thread->join();
   }
 
-  void connect(const std::string& uri,
-               std::function<void(websocketpp::connection_hdl)> onOpenHandler,
-               std::function<void(websocketpp::connection_hdl)> onCloseHandler = nullptr) {
+  void connect(
+    const std::string& uri, std::function<void(websocketpp::connection_hdl)> onOpenHandler,
+    std::function<void(websocketpp::connection_hdl)> onCloseHandler = nullptr
+  ) {
     std::unique_lock<std::shared_mutex> lock(_mutex);
 
     websocketpp::lib::error_code ec;
@@ -327,8 +329,10 @@ public:
     sendBinary(payload.data(), payload.size());
   }
 
-  void getParameters(const std::vector<std::string>& parameterNames,
-                     const std::optional<std::string>& requestId = std::nullopt) {
+  void getParameters(
+    const std::vector<std::string>& parameterNames,
+    const std::optional<std::string>& requestId = std::nullopt
+  ) {
     nlohmann::json jsonPayload{{"op", "getParameters"}, {"parameterNames", parameterNames}};
     if (requestId) {
       jsonPayload["id"] = requestId.value();
@@ -336,8 +340,10 @@ public:
     sendText(jsonPayload.dump());
   }
 
-  void setParameters(const std::vector<foxglove::Parameter>& parameters,
-                     const std::optional<std::string>& requestId = std::nullopt) {
+  void setParameters(
+    const std::vector<foxglove::Parameter>& parameters,
+    const std::optional<std::string>& requestId = std::nullopt
+  ) {
     nlohmann::json parametersJson;
     to_json(parametersJson, parameters);
     nlohmann::json jsonPayload{{"op", "setParameters"}, {"parameters", parametersJson}};
@@ -348,14 +354,16 @@ public:
   }
 
   void subscribeParameterUpdates(const std::vector<std::string>& parameterNames) {
-    nlohmann::json jsonPayload{{"op", "subscribeParameterUpdates"},
-                               {"parameterNames", parameterNames}};
+    nlohmann::json jsonPayload{
+      {"op", "subscribeParameterUpdates"}, {"parameterNames", parameterNames}
+    };
     sendText(jsonPayload.dump());
   }
 
   void unsubscribeParameterUpdates(const std::vector<std::string>& parameterNames) {
-    nlohmann::json jsonPayload{{"op", "unsubscribeParameterUpdates"},
-                               {"parameterNames", parameterNames}};
+    nlohmann::json jsonPayload{
+      {"op", "unsubscribeParameterUpdates"}, {"parameterNames", parameterNames}
+    };
     sendText(jsonPayload.dump());
   }
 
@@ -390,8 +398,9 @@ public:
     auto future = promise->get_future();
     auto fulfilled = std::make_shared<std::atomic<bool>>(false);
 
-    setBinaryMessageHandler([promise = std::move(promise), fulfilled, subscriptionId](
-                              const uint8_t* data, size_t dataLength) {
+    setBinaryMessageHandler([promise = std::move(promise),
+                             fulfilled,
+                             subscriptionId](const uint8_t* data, size_t dataLength) {
       // Opcode, subscription ID, receive timestamp.
       constexpr size_t offset = 1 + 4 + 8;
       // Other server-pushed binary frames (e.g. TIME) land in this handler
@@ -416,26 +425,28 @@ public:
   }
 
   std::future<std::vector<foxglove::Parameter>> waitForParameters(
-    const std::string& requestId = std::string()) {
+    const std::string& requestId = std::string()
+  ) {
     auto promise = std::make_shared<std::promise<std::vector<foxglove::Parameter>>>();
     auto future = promise->get_future();
     auto fulfilled = std::make_shared<std::atomic<bool>>(false);
 
-    setTextMessageHandler([promise = std::move(promise), fulfilled,
-                           requestId](const std::string& payload) {
-      const auto msg = nlohmann::json::parse(payload);
-      const auto& op = msg["op"].get<std::string>();
-      const auto id = msg.value("id", "");
+    setTextMessageHandler(
+      [promise = std::move(promise), fulfilled, requestId](const std::string& payload) {
+        const auto msg = nlohmann::json::parse(payload);
+        const auto& op = msg["op"].get<std::string>();
+        const auto id = msg.value("id", "");
 
-      if (op == "parameterValues" && (requestId.empty() || requestId == id)) {
-        if (fulfilled->exchange(true)) {
-          return;  // A second matching message must not double-set the promise.
+        if (op == "parameterValues" && (requestId.empty() || requestId == id)) {
+          if (fulfilled->exchange(true)) {
+            return;  // A second matching message must not double-set the promise.
+          }
+          std::vector<foxglove::Parameter> parameters;
+          from_json(msg["parameters"], parameters);
+          promise->set_value(std::move(parameters));
         }
-        std::vector<foxglove::Parameter> parameters;
-        from_json(msg["parameters"], parameters);
-        promise->set_value(std::move(parameters));
       }
-    });
+    );
 
     return future;
   }
@@ -445,8 +456,8 @@ public:
     auto future = promise->get_future();
     auto fulfilled = std::make_shared<std::atomic<bool>>(false);
 
-    setBinaryMessageHandler([promise = std::move(promise), fulfilled](
-                              const uint8_t* data, size_t dataLength) mutable {
+    setBinaryMessageHandler([promise = std::move(promise),
+                             fulfilled](const uint8_t* data, size_t dataLength) mutable {
       if (static_cast<ServerBinaryOpcode>(data[0]) != ServerBinaryOpcode::SERVICE_CALL_RESPONSE) {
         return;
       }
@@ -495,7 +506,8 @@ public:
             }
           }
         }
-      });
+      }
+    );
 
     return future;
   }
@@ -521,7 +533,8 @@ public:
             }
           }
         }
-      });
+      }
+    );
     return future;
   }
 
@@ -530,35 +543,35 @@ public:
     auto future = promise->get_future();
     auto fulfilled = std::make_shared<std::atomic<bool>>(false);
 
-    setBinaryMessageHandler(
-      [promise = std::move(promise), fulfilled](const uint8_t* data, size_t dataLength) mutable {
-        if (static_cast<ServerBinaryOpcode>(data[0]) != ServerBinaryOpcode::FETCH_ASSET_RESPONSE) {
-          return;
-        }
-        if (fulfilled->exchange(true)) {
-          return;  // A second response must not double-set the promise.
-        }
+    setBinaryMessageHandler([promise = std::move(promise),
+                             fulfilled](const uint8_t* data, size_t dataLength) mutable {
+      if (static_cast<ServerBinaryOpcode>(data[0]) != ServerBinaryOpcode::FETCH_ASSET_RESPONSE) {
+        return;
+      }
+      if (fulfilled->exchange(true)) {
+        return;  // A second response must not double-set the promise.
+      }
 
-        FetchAssetResponse response;
-        size_t offset = 1;
-        response.requestId = ReadUint32LE(data + offset);
-        offset += 4;
-        response.status = static_cast<FetchAssetStatus>(data[offset]);
-        offset += 1;
-        const size_t errorMsgLength = static_cast<size_t>(ReadUint32LE(data + offset));
-        offset += 4;
-        response.errorMessage =
-          std::string(reinterpret_cast<const char*>(data + offset), errorMsgLength);
-        offset += errorMsgLength;
-        const auto payloadLength = dataLength - offset;
+      FetchAssetResponse response;
+      size_t offset = 1;
+      response.requestId = ReadUint32LE(data + offset);
+      offset += 4;
+      response.status = static_cast<FetchAssetStatus>(data[offset]);
+      offset += 1;
+      const size_t errorMsgLength = static_cast<size_t>(ReadUint32LE(data + offset));
+      offset += 4;
+      response.errorMessage =
+        std::string(reinterpret_cast<const char*>(data + offset), errorMsgLength);
+      offset += errorMsgLength;
+      const auto payloadLength = dataLength - offset;
 
-        response.data.resize(payloadLength);
-        if (payloadLength > 0) {
-          std::memcpy(response.data.data(), data + offset, payloadLength);
-        }
+      response.data.resize(payloadLength);
+      if (payloadLength > 0) {
+        std::memcpy(response.data.data(), data + offset, payloadLength);
+      }
 
-        promise->set_value(response);
-      });
+      promise->set_value(response);
+    });
     return future;
   }
 

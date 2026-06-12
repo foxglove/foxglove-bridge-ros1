@@ -1,5 +1,11 @@
 #pragma once
 
+#include <foxglove/fetch_asset.hpp>
+#include <foxglove/foxglove.hpp>
+#include <foxglove/parameter_handler.hpp>
+#include <foxglove/system_info.hpp>
+#include <foxglove/websocket.hpp>
+
 #include <chrono>
 #include <condition_variable>
 #include <map>
@@ -12,12 +18,6 @@
 #include <unordered_map>
 #include <variant>
 #include <vector>
-
-#include <foxglove/fetch_asset.hpp>
-#include <foxglove/foxglove.hpp>
-#include <foxglove/parameter_handler.hpp>
-#include <foxglove/system_info.hpp>
-#include <foxglove/websocket.hpp>
 #ifdef FOXGLOVE_REMOTE_ACCESS
 #include <foxglove/remote_access.hpp>
 #endif
@@ -45,17 +45,22 @@ class BridgeDelegate {
 public:
   virtual ~BridgeDelegate() = default;
 
-  virtual void onSubscribe(ChannelId channelId, ClientId clientId, bool isGateway,
-                           std::optional<SinkId> sinkId) = 0;
+  virtual void onSubscribe(
+    ChannelId channelId, ClientId clientId, bool isGateway, std::optional<SinkId> sinkId
+  ) = 0;
   virtual void onUnsubscribe(ChannelId channelId, ClientId clientId, bool isGateway) = 0;
 
   // Client publish. Only called if the ClientPublish capability is enabled.
-  virtual void onClientAdvertise(const ClientChannelInfo& channel, ClientId clientId,
-                                 bool isGateway) = 0;
-  virtual void onClientUnadvertise(ChannelId clientChannelId, ClientId clientId,
-                                   bool isGateway) = 0;
-  virtual void onClientMessage(ChannelId clientChannelId, ClientId clientId, bool isGateway,
-                               const std::byte* data, size_t dataLen) = 0;
+  virtual void onClientAdvertise(
+    const ClientChannelInfo& channel, ClientId clientId, bool isGateway
+  ) = 0;
+  virtual void onClientUnadvertise(
+    ChannelId clientChannelId, ClientId clientId, bool isGateway
+  ) = 0;
+  virtual void onClientMessage(
+    ChannelId clientChannelId, ClientId clientId, bool isGateway, const std::byte* data,
+    size_t dataLen
+  ) = 0;
 
   // Connection graph subscription tracking (refcounted by the frontend).
   virtual void onConnectionGraphSubscribe(bool subscribe) = 0;
@@ -86,10 +91,12 @@ class ParameterBackend {
 public:
   virtual ~ParameterBackend() = default;
 
-  virtual ParameterList getParams(const std::vector<std::string_view>& paramNames,
-                                  const std::chrono::duration<double>& timeout) = 0;
-  virtual void setParams(const ParameterList& params,
-                         const std::chrono::duration<double>& timeout) = 0;
+  virtual ParameterList getParams(
+    const std::vector<std::string_view>& paramNames, const std::chrono::duration<double>& timeout
+  ) = 0;
+  virtual void setParams(
+    const ParameterList& params, const std::chrono::duration<double>& timeout
+  ) = 0;
   virtual void subscribeParams(const std::vector<std::string_view>& paramNames) = 0;
   virtual void unsubscribeParams(const std::vector<std::string_view>& paramNames) = 0;
 };
@@ -136,8 +143,10 @@ public:
   /// or transport startup failure. The delegate and paramBackend (if not
   /// null) must outlive the TransportManager. paramBackend may be null when
   /// the Parameters capability is not requested.
-  TransportManager(TransportOptions options, BridgeDelegate& delegate,
-                   ParameterBackend* paramBackend, Logger logger);
+  TransportManager(
+    TransportOptions options, BridgeDelegate& delegate, ParameterBackend* paramBackend,
+    Logger logger
+  );
   ~TransportManager();
 
   TransportManager(const TransportManager&) = delete;
@@ -167,8 +176,9 @@ public:
   /// Returns false if the service could not be added to the WebSocket server;
   /// gateway-side failures are logged but do not fail the call.
   /// (Non-const refs because foxglove::Service::create takes non-const refs.)
-  bool addService(const std::string& name, foxglove::ServiceSchema& schema,
-                  foxglove::ServiceHandler& handler);
+  bool addService(
+    const std::string& name, foxglove::ServiceSchema& schema, foxglove::ServiceHandler& handler
+  );
   void removeService(const std::string& name);
 
   /// Publish the connection graph to both transports.
@@ -200,8 +210,10 @@ private:
 
   void wireWebSocketCallbacks(foxglove::WebSocketServerOptions& serverOptions);
 #ifdef FOXGLOVE_REMOTE_ACCESS
-  void createGateway(const TransportOptions& options,
-                     const std::optional<std::map<std::string, std::string>>& serverInfo);
+  void createGateway(
+    const TransportOptions& options,
+    const std::optional<std::map<std::string, std::string>>& serverInfo
+  );
 #endif
 
   // Wire the parameter-related callbacks/handler on a server or gateway
@@ -210,7 +222,8 @@ private:
   void wireParameterCallbacks(
     std::function<void(const std::vector<std::string_view>&)>& onSubscribe,
     std::function<void(const std::vector<std::string_view>&)>& onUnsubscribe,
-    foxglove::ParameterHandler& handler);
+    foxglove::ParameterHandler& handler
+  );
 
   void enqueueParameterOp(ParameterOp&& op);
   void parameterWorkerLoop();
@@ -224,8 +237,7 @@ private:
   ParameterBackend* _paramBackend = nullptr;
 
   foxglove::Context _context;
-  foxglove::WebSocketServerCapabilities _capabilities =
-    foxglove::WebSocketServerCapabilities::None;
+  foxglove::WebSocketServerCapabilities _capabilities = foxglove::WebSocketServerCapabilities::None;
   std::unique_ptr<foxglove::WebSocketServer> _server;
   std::unique_ptr<foxglove::SystemInfoPublisher> _sysinfoPublisher;
 #ifdef FOXGLOVE_REMOTE_ACCESS

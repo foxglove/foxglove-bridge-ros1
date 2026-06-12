@@ -1,5 +1,16 @@
 #pragma once
 
+#include <foxglove/foxglove.hpp>
+#include <foxglove_bridge/param_interface.hpp>
+#include <foxglove_bridge/transport_manager.hpp>
+#include <foxglove_bridge/types.hpp>
+
+#include <ros/message_event.h>
+#include <ros/ros.h>
+#include <ros/subscribe_options.h>
+#include <ros_babel_fish/generation/providers/integrated_description_provider.h>
+#include <topic_tools/shape_shifter.h>
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -13,17 +24,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include <ros/message_event.h>
-#include <ros/ros.h>
-#include <ros/subscribe_options.h>
-#include <ros_babel_fish/generation/providers/integrated_description_provider.h>
-#include <topic_tools/shape_shifter.h>
-
-#include <foxglove/foxglove.hpp>
-#include <foxglove_bridge/transport_manager.hpp>
-#include <foxglove_bridge/types.hpp>
-#include <foxglove_bridge/param_interface.hpp>
-
 namespace foxglove_bridge {
 
 class Ros1FoxgloveBridge : public BridgeDelegate {
@@ -35,19 +35,21 @@ public:
 
   // BridgeDelegate (callbacks from the TransportManager, normalized across the
   // WebSocket server and the remote access gateway)
-  void onSubscribe(ChannelId channelId, ClientId clientId, bool isGateway,
-                   std::optional<SinkId> sinkId) override;
+  void onSubscribe(
+    ChannelId channelId, ClientId clientId, bool isGateway, std::optional<SinkId> sinkId
+  ) override;
   void onUnsubscribe(ChannelId channelId, ClientId clientId, bool isGateway) override;
-  void onClientAdvertise(const ClientChannelInfo& channel, ClientId clientId,
-                         bool isGateway) override;
+  void onClientAdvertise(const ClientChannelInfo& channel, ClientId clientId, bool isGateway)
+    override;
   void onClientUnadvertise(ChannelId clientChannelId, ClientId clientId, bool isGateway) override;
-  void onClientMessage(ChannelId clientChannelId, ClientId clientId, bool isGateway,
-                       const std::byte* data, size_t dataLen) override;
+  void onClientMessage(
+    ChannelId clientChannelId, ClientId clientId, bool isGateway, const std::byte* data,
+    size_t dataLen
+  ) override;
   void onConnectionGraphSubscribe(bool subscribe) override;
   void fetchAsset(std::string_view uri, foxglove::FetchAssetResponder&& responder) override;
 #ifdef FOXGLOVE_REMOTE_ACCESS
-  foxglove::QosProfile classifyRemoteAccessQos(
-    const foxglove::ChannelDescriptor& channel) override;
+  foxglove::QosProfile classifyRemoteAccessQos(const foxglove::ChannelDescriptor& channel) override;
   void onGatewayConnectionStatusChanged(foxglove::RemoteAccessConnectionStatus status) override;
 #endif
 
@@ -120,11 +122,13 @@ private:
   void updateAdvertisedTopics(const std::vector<TopicAndDatatype>& topics);
   void updateAdvertisedServices(const std::vector<std::string>& serviceNames);
 
-  void rosMessageHandler(ChannelId channelId,
-                         const ros::MessageEvent<topic_tools::ShapeShifter const>& msgEvent);
+  void rosMessageHandler(
+    ChannelId channelId, const ros::MessageEvent<topic_tools::ShapeShifter const>& msgEvent
+  );
 
-  void handleServiceRequest(const foxglove::ServiceRequest& request,
-                            foxglove::ServiceResponder&& responder);
+  void handleServiceRequest(
+    const foxglove::ServiceRequest& request, foxglove::ServiceResponder&& responder
+  );
 
   /// Respond with an error to pending service calls whose deadline has
   /// passed, and drop completed entries. Runs on the poll thread, so the
@@ -190,8 +194,7 @@ private:
   // Outstanding client service calls with their deadlines, swept by the poll
   // thread. Entries left at shutdown drop their responders, which sends the
   // client an error status.
-  std::vector<
-    std::pair<std::chrono::steady_clock::time_point, std::shared_ptr<PendingServiceCall>>>
+  std::vector<std::pair<std::chrono::steady_clock::time_point, std::shared_ptr<PendingServiceCall>>>
     _pendingServiceCalls;
   std::mutex _pendingServiceCallsMutex;
 

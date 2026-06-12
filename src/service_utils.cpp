@@ -1,7 +1,4 @@
-#include <atomic>
-#include <chrono>
-#include <future>
-#include <memory>
+#include <foxglove_bridge/service_utils.hpp>
 
 #include <ros/connection.h>
 #include <ros/connection_manager.h>
@@ -10,7 +7,10 @@
 #include <ros/this_node.h>
 #include <ros/transport/transport_tcp.h>
 
-#include <foxglove_bridge/service_utils.hpp>
+#include <atomic>
+#include <chrono>
+#include <future>
+#include <memory>
 
 namespace foxglove_bridge {
 
@@ -60,13 +60,15 @@ std::string retrieveServiceType(const std::string& serviceName, std::chrono::mil
           state->promise.set_value(serviceType);
         } else {
           state->promise.set_exception(std::make_exception_ptr(
-            std::runtime_error("Key 'type' not found in service connection header")));
+            std::runtime_error("Key 'type' not found in service connection header")
+          ));
         }
       }
       // Close connection since we don't need it any more.
       conn->drop(ros::Connection::DropReason::Destructing);
       return true;
-    });
+    }
+  );
 
   ros::M_string header;
   header["service"] = serviceName;

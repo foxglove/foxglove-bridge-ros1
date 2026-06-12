@@ -2,22 +2,21 @@
 // which launches the master, the bridge with use_sim_time, and this gtest).
 // Uses the in-repo ws-protocol test client (tests/client).
 
-#include <chrono>
-#include <future>
-#include <memory>
-#include <string>
-#include <vector>
-
 #include <arpa/inet.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
 #include <gtest/gtest.h>
 #include <ros/ros.h>
 #include <roscpp/GetLoggers.h>
 #include <rosgraph_msgs/Clock.h>
 #include <std_msgs/String.h>
+#include <sys/socket.h>
 #include <websocketpp/config/asio_client.hpp>
+
+#include <chrono>
+#include <future>
+#include <memory>
+#include <string>
+#include <unistd.h>
+#include <vector>
 
 #include "client/test_client.hpp"
 
@@ -72,8 +71,7 @@ bool waitForServer(uint16_t port, std::chrono::seconds timeout) {
       addr.sin_family = AF_INET;
       addr.sin_port = htons(port);
       inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-      const int result =
-        ::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
+      const int result = ::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
       ::close(fd);
       if (result == 0) {
         return true;
@@ -145,11 +143,14 @@ TEST(SmokeTest, ClientPublish) {
   auto future = promise->get_future();
   auto fulfilled = std::make_shared<std::atomic<bool>>(false);
   auto subscriber = nh.subscribe<std_msgs::String>(
-    "/smoke/from_client", 10, [promise, fulfilled](const std_msgs::String::ConstPtr& msg) {
+    "/smoke/from_client",
+    10,
+    [promise, fulfilled](const std_msgs::String::ConstPtr& msg) {
       if (!fulfilled->exchange(true)) {
         promise->set_value(msg->data);
       }
-    });
+    }
+  );
 
   auto client = std::make_shared<Client>();
   ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
@@ -212,8 +213,8 @@ TEST(SmokeTest, ServiceCallTimeout) {
   ros::NodeHandle nh;
   auto release = std::make_shared<std::promise<void>>();
   auto releaseFuture = release->get_future().share();
-  boost::function<bool(roscpp::GetLoggers::Request&, roscpp::GetLoggers::Response&)>
-    hungCallback = [releaseFuture](roscpp::GetLoggers::Request&, roscpp::GetLoggers::Response&) {
+  boost::function<bool(roscpp::GetLoggers::Request&, roscpp::GetLoggers::Response&)> hungCallback =
+    [releaseFuture](roscpp::GetLoggers::Request&, roscpp::GetLoggers::Response&) {
       // Block until the test releases us; bounded as a teardown backstop.
       releaseFuture.wait_for(30s);
       return true;
@@ -287,8 +288,7 @@ TEST(SmokeTest, Parameters) {
   auto updateFuture = client->waitForParameters();
   const auto deadline = std::chrono::steady_clock::now() + DEFAULT_TIMEOUT;
   std::future_status updateStatus = std::future_status::timeout;
-  while (updateStatus != std::future_status::ready &&
-         std::chrono::steady_clock::now() < deadline) {
+  while (updateStatus != std::future_status::ready && std::chrono::steady_clock::now() < deadline) {
     nh.setParam("/smoke/param", "pushed");
     updateStatus = updateFuture.wait_for(500ms);
   }
@@ -310,8 +310,9 @@ TEST(SmokeTest, FetchAsset) {
   auto response = responseFuture.get();
   EXPECT_EQ(response.requestId, 1u);
   ASSERT_EQ(response.status, foxglove::test::FetchAssetStatus::Success);
-  const std::string content(reinterpret_cast<const char*>(response.data.data()),
-                            response.data.size());
+  const std::string content(
+    reinterpret_cast<const char*>(response.data.data()), response.data.size()
+  );
   EXPECT_NE(content.find("smoke-bot"), std::string::npos);
 
   // Path traversal must be rejected.
