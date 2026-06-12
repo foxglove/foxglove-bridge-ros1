@@ -37,6 +37,12 @@ public:
 
   void setParamUpdateCallback(ParamUpdateFunc paramUpdateFunc);
 
+  /// Unsubscribe all parameter subscriptions and stop the XML-RPC server,
+  /// joining its thread: after this returns, no parameter-update callback is
+  /// in flight or can start. Called by the destructor; call explicitly before
+  /// destroying whatever the update callback publishes into. Idempotent.
+  void shutdown();
+
 private:
   /// `paramUpdate` XML-RPC endpoint, called by the master on parameter change.
   void parameterUpdates(XmlRpc::XmlRpcValue& params, XmlRpc::XmlRpcValue& result);
@@ -52,6 +58,7 @@ private:
   std::mutex _mutex;
   ParamUpdateFunc _paramUpdateFunc;
   std::unordered_set<std::string> _subscribedParams;
+  bool _shutdown = false;
 };
 
 }  // namespace foxglove_bridge
