@@ -2,13 +2,7 @@
 
 ROS 1 Foxglove bridge. Connects ROS 1 topics, services, and parameters to
 Foxglove clients over a local WebSocket server and, when enabled, the
-Foxglove remote access gateway (LiveKit/WebRTC — handled entirely by the
-SDK). Deliberately a parallel implementation to the ROS 2 `foxglove_bridge`
-(which lives in the [foxglove-sdk](https://github.com/foxglove/foxglove-sdk)
-repository): the two packages share a name — like the legacy
-`ros-foxglove-bridge`, which served both ROS versions under one name — but
-no code; the transport-facing layer (transport_manager, capabilities,
-logging, types, utils) is a copy of the equivalent code in the ROS 2 bridge.
+Foxglove remote access gateway (LiveKit/WebRTC, handled entirely by the SDK).
 
 ## Building
 
@@ -27,24 +21,31 @@ make docker-build
 The Foxglove SDK is downloaded by CMake during the build as a pinned,
 SHA-verified release zip (see the FetchContent block in CMakeLists.txt).
 
-### Testing against a locally-built SDK
+## Running
 
-To build and test against a locally-modified SDK instead of the pinned
-release, run `make build-cpp-dist` in a foxglove-sdk checkout and point
-`FOXGLOVE_CPP_SDK_DIR` at the resulting `cpp/dist` tree:
+The robot side needs no changes: a stock focal Noetic robot works as-is,
+because the bridge speaks ordinary TCPROS.
+
+With the robot's rosmaster on the same host, serve local Foxglove WebSocket
+connections with:
 
 ```sh
-make docker-test-local-sdk FOXGLOVE_CPP_SDK_DIR=/path/to/foxglove-sdk/cpp/dist
+docker run --rm --network host \
+  -e ROS_MASTER_URI=http://localhost:11311 \
+  -e ROS_HOSTNAME=localhost \
+  foxglove-bridge-ros1
 ```
 
-This reuses the prebuilt image and mounts the SDK dist and the current
-working tree into it, rebuilding just the bridge inside the container — so
-the slow Noetic-from-source image stage is not repeated, and local edits to
-both the SDK and the bridge are picked up without rebuilding the image.
+then connect Foxglove to `ws://<bridge-host>:8765`. With `--network host`
+Docker does not publish ports, so for clients on other machines, open 8765 in
+the bridge host's firewall.
 
-Run against an external rosmaster (e.g. a robot running a stock focal
-Noetic — the bridge interoperates over TCPROS; the robot side needs no
-changes):
+For a robot elsewhere on the network, point `ROS_MASTER_URI` at the robot and
+set `ROS_HOSTNAME` to an address of the bridge host that the robot can reach
+(ROS 1 publishers connect back to subscribers).
+
+To use the Foxglove remote access gateway instead, pass a device token and
+enable it:
 
 ```sh
 docker run --rm --network host \
@@ -54,6 +55,9 @@ docker run --rm --network host \
   foxglove-bridge-ros1 \
   rosrun foxglove_bridge foxglove_bridge _remote_access:=true
 ```
+
+The gateway connection is outbound from the bridge, so no inbound ports need
+to be open; the device then appears under Devices in the Foxglove app.
 
 ### Assets in a sidecar deployment
 
@@ -69,6 +73,18 @@ already on the bridge's `ROS_PACKAGE_PATH`:
 
 (The URDF itself usually travels as the `robot_description` parameter and
 needs no mount; only the assets it references do.)
+[examples/demo_robot_description](examples/demo_robot_description) is a
+runnable demo of this: a minimal description package whose single-link URDF
+references an STL mesh by `package://` URI.
+
+## Examples
+
+- [examples/image_publisher.py](examples/image_publisher.py) — dependency-free
+  rospy node that publishes a scrolling color-bar `sensor_msgs/Image` test
+  pattern; runs on a stock `ros:noetic` container.
+- [examples/demo_robot_description](examples/demo_robot_description) — minimal
+  description package (single-link URDF, so it renders without TF, plus an
+  STL mesh) for exercising `fetchAsset`; see the sidecar section above.
 
 ## Testing
 
@@ -79,7 +95,23 @@ make docker-test
 Runs the rostest-based smoke suite (`tests/smoke.test`) in the image: a master,
 the bridge, and a gtest that exercises topics, latched replay, client publish,
 service calls, parameter get/set/push, asset fetching, and time broadcast over
-the ws-protocol, using the test client shared with the ROS 2 bridge tests.
+the ws-protocol, using an in-repo copy of the ws-protocol test client from the
+ROS 2 bridge tests.
+
+### Testing against a locally-built SDK
+
+To build and test against a locally-modified SDK instead of the pinned
+release, run `make build-cpp-dist` in a foxglove-sdk checkout and point
+`FOXGLOVE_CPP_SDK_DIR` at the resulting `cpp/dist` tree:
+
+```sh
+make docker-test-local-sdk FOXGLOVE_CPP_SDK_DIR=/path/to/foxglove-sdk/cpp/dist
+```
+
+This reuses the prebuilt image and mounts the SDK dist and the current
+working tree into it, rebuilding just the bridge inside the container — so
+the slow Noetic-from-source image stage is not repeated, and local edits to
+both the SDK and the bridge are picked up without rebuilding the image.
 
 ## Implementation notes
 
@@ -87,8 +119,8 @@ the ws-protocol, using the test client shared with the ROS 2 bridge tests.
   provider (disk lookup at advertise time), following the legacy
   `foxglove/ros-foxglove-bridge` design.
 - **Topic/service/graph discovery** polls the master (`getTopicTypes`,
-  `getSystemState`) with exponential backoff (100ms doubling to
-  `~max_update_ms`, default 5000).
+  `getSystemState`) with exponential backoff (100 ms doubling up to
+  `~max_update_ms`, default 5000 ms).
 - **Subscriptions** use `topic_tools::ShapeShifter` and forward raw serialized
   bytes; **client publishers** are created from `ros::AdvertiseOptions` with
   babel_fish-provided type info, and inbound messages are republished via a
@@ -97,10 +129,10 @@ the ws-protocol, using the test client shared with the ROS 2 bridge tests.
   server's connection header (`service_utils.cpp`, ported from the legacy
   bridge), the md5 looked up via babel_fish, and raw bytes forwarded with a
   dynamic-traits `GenericService`.
-- **Parameters** implement the transport manager's `ParameterBackend` over `ros::param`;
-  subscriptions use the master's `subscribeParam` push mechanism via a second
-  `ros::XMLRPCManager` serving a `paramUpdate` endpoint (legacy bridge
-  pattern).
+- **Parameters** implement the transport manager's `ParameterBackend` over
+  `ros::param`; subscriptions use the master's `subscribeParam` push mechanism
+  via a second `ros::XMLRPCManager` serving a `paramUpdate` endpoint (legacy
+  bridge pattern).
 
 ## Known limitations / TODOs
 
