@@ -405,24 +405,20 @@ void Ros1FoxgloveBridge::updateAdvertisedServices(const std::vector<std::string>
       servicesToRemove.push_back(serviceName);
     }
   }
-  // Handlers must stay alive until the SDK has removed the services; retire
-  // them after the removeService calls below.
-  std::vector<std::unique_ptr<foxglove::ServiceHandler>> retiredHandlers;
   if (!servicesToRemove.empty()) {
-    std::lock_guard<std::mutex> lock(_servicesMutex);
-    for (const auto& serviceName : servicesToRemove) {
-      _advertisedServices.erase(serviceName);
-      auto handlerIt = _serviceHandlers.find(serviceName);
-      if (handlerIt != _serviceHandlers.end()) {
-        retiredHandlers.push_back(std::move(handlerIt->second));
-        _serviceHandlers.erase(handlerIt);
+    {
+      std::lock_guard<std::mutex> lock(_servicesMutex);
+      for (const auto& serviceName : servicesToRemove) {
+        _advertisedServices.erase(serviceName);
       }
     }
+    // The shared handler is not touched: a late SDK call for a removed
+    // service trampolines into handleServiceRequest, which no longer finds it
+    // in _advertisedServices and responds with an error.
+    for (const auto& serviceName : servicesToRemove) {
+      _transports->removeService(serviceName);
+    }
   }
-  for (const auto& serviceName : servicesToRemove) {
-    _transports->removeService(serviceName);
-  }
-  retiredHandlers.clear();
 
   // Advertise new services
   for (const auto& serviceName : serviceNames) {
@@ -475,26 +471,19 @@ void Ros1FoxgloveBridge::updateAdvertisedServices(const std::vector<std::string>
       ROS_WARN("Could not find definition for service type %s", details.type.c_str());
     }
 
-    auto handler = std::make_unique<foxglove::ServiceHandler>(
-      [this](const foxglove::ServiceRequest& req, foxglove::ServiceResponder&& res) {
-        this->handleServiceRequest(req, std::move(res));
-      }
-    );
-    foxglove::ServiceHandler* handlerPtr = handler.get();
-
     const std::string serviceType = details.type;
 
-    // Populate the maps before registering with the SDK, so a request can
-    // never arrive for a service handleServiceRequest doesn't know about.
+    // Populate _advertisedServices before registering with the SDK, so a
+    // request can never arrive for a service handleServiceRequest doesn't
+    // know about. All services share _serviceHandler (see its declaration),
+    // so there is no per-service handler to track.
     {
       std::lock_guard<std::mutex> lock(_servicesMutex);
-      _serviceHandlers.insert({serviceName, std::move(handler)});
       _advertisedServices.insert({serviceName, std::move(details)});
     }
 
-    if (!_transports->addService(serviceName, serviceSchema, *handlerPtr)) {
+    if (!_transports->addService(serviceName, serviceSchema, _serviceHandler)) {
       std::lock_guard<std::mutex> lock(_servicesMutex);
-      _serviceHandlers.erase(serviceName);
       _advertisedServices.erase(serviceName);
       continue;
     }

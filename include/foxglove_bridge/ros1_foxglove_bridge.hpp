@@ -189,8 +189,20 @@ private:
   std::mutex _clientAdvertisementsMutex;
 
   std::unordered_map<std::string, ServiceDetails> _advertisedServices;
-  std::unordered_map<std::string, std::unique_ptr<foxglove::ServiceHandler>> _serviceHandlers;
   std::mutex _servicesMutex;
+
+  // A single handler shared by every advertised service. The SDK stores a raw
+  // pointer to this std::function (Service::create captures &handler) and may
+  // invoke it after removeService returns — the SDK does not quiesce in-flight
+  // calls — so a per-service handler could not be safely freed on removal.
+  // The handler is a stateless trampoline into handleServiceRequest, which
+  // resolves the service by name, so one instance valid for the bridge's
+  // lifetime serves all services; a call for an already-removed service finds
+  // it absent from _advertisedServices and returns an error.
+  foxglove::ServiceHandler _serviceHandler =
+    [this](const foxglove::ServiceRequest& req, foxglove::ServiceResponder&& res) {
+      this->handleServiceRequest(req, std::move(res));
+    };
 
   // Outstanding client service calls with their deadlines, swept by the poll
   // thread. Entries left at shutdown drop their responders, which sends the
