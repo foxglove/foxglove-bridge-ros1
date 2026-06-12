@@ -8,6 +8,7 @@
 #include <atomic>
 #include <functional>
 #include <future>
+#include <iostream>
 #include <optional>
 #include <shared_mutex>
 #include <utility>
@@ -161,10 +162,18 @@ inline void from_json(const nlohmann::json& j, Service& s) {
   s.id = j["id"].get<uint32_t>();
   s.name = j["name"].get<std::string>();
   s.type = j["type"].get<std::string>();
-  s.requestType = j["request"]["schemaName"].get<std::string>();
-  s.requestSchema = j["request"]["schema"].get<std::string>();
-  s.responseType = j["response"]["schemaName"].get<std::string>();
-  s.responseSchema = j["response"]["schema"].get<std::string>();
+  // request/response are omitted for services advertised without a schema
+  // (the bridge does this when the type description is unavailable).
+  // operator[] on a const json with a missing key is undefined behavior, so
+  // check for presence rather than indexing unconditionally.
+  if (j.contains("request")) {
+    s.requestType = j["request"].value("schemaName", "");
+    s.requestSchema = j["request"].value("schema", "");
+  }
+  if (j.contains("response")) {
+    s.responseType = j["response"].value("schemaName", "");
+    s.responseSchema = j["response"].value("schema", "");
+  }
 }
 
 using TextMessageHandler = std::function<void(const std::string&)>;
@@ -273,31 +282,39 @@ public:
 
     // Copy the handler out under the lock and invoke it unlocked: a handler
     // that calls back into the client (send*, set*MessageHandler) would
-    // otherwise deadlock on the shared mutex.
-    switch (op) {
-      case OpCode::TEXT: {
-        TextMessageHandler handler;
-        {
-          std::shared_lock<std::shared_mutex> lock(_mutex);
-          handler = _textMessageHandler;
-        }
-        if (handler) {
-          handler(msg->get_payload());
-        }
-      } break;
-      case OpCode::BINARY: {
-        BinaryMessageHandler handler;
-        {
-          std::shared_lock<std::shared_mutex> lock(_mutex);
-          handler = _binaryMessageHandler;
-        }
-        if (handler) {
-          const auto& payload = msg->get_payload();
-          handler(reinterpret_cast<const uint8_t*>(payload.data()), payload.size());
-        }
-      } break;
-      default:
-        break;
+    // otherwise deadlock on the shared mutex. The invocation is wrapped in a
+    // catch-all: this runs on the websocketpp run thread, where an escaping
+    // exception (e.g. a JSON parse error or an unexpected message shape in a
+    // waitFor* handler) would terminate the whole test process rather than
+    // failing one test.
+    try {
+      switch (op) {
+        case OpCode::TEXT: {
+          TextMessageHandler handler;
+          {
+            std::shared_lock<std::shared_mutex> lock(_mutex);
+            handler = _textMessageHandler;
+          }
+          if (handler) {
+            handler(msg->get_payload());
+          }
+        } break;
+        case OpCode::BINARY: {
+          BinaryMessageHandler handler;
+          {
+            std::shared_lock<std::shared_mutex> lock(_mutex);
+            handler = _binaryMessageHandler;
+          }
+          if (handler) {
+            const auto& payload = msg->get_payload();
+            handler(reinterpret_cast<const uint8_t*>(payload.data()), payload.size());
+          }
+        } break;
+        default:
+          break;
+      }
+    } catch (const std::exception& ex) {
+      std::cerr << "test client message handler threw: " << ex.what() << "\n";
     }
   }
 
