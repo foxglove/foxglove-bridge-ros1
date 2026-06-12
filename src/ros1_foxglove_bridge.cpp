@@ -375,7 +375,12 @@ void Ros1FoxgloveBridge::updateAdvertisedTopics(const std::vector<TopicAndDataty
 }
 
 void Ros1FoxgloveBridge::updateAdvertisedServices(const std::vector<std::string>& serviceNames) {
-  std::lock_guard<std::mutex> lock(_servicesMutex);
+  // The service maps are only mutated from this (poll) thread, so reading
+  // them here without the lock is safe; _servicesMutex guards
+  // handleServiceRequest's concurrent reads and is held only for the brief
+  // map mutations — not across the per-service TCP type probe or the SDK
+  // add/remove calls, which would stall client service calls for their
+  // duration.
 
   // Remove advertisements for services that have been removed
   std::vector<std::string> servicesToRemove;
@@ -385,11 +390,24 @@ void Ros1FoxgloveBridge::updateAdvertisedServices(const std::vector<std::string>
       servicesToRemove.push_back(serviceName);
     }
   }
+  // Handlers must stay alive until the SDK has removed the services; retire
+  // them after the removeService calls below.
+  std::vector<std::unique_ptr<foxglove::ServiceHandler>> retiredHandlers;
+  if (!servicesToRemove.empty()) {
+    std::lock_guard<std::mutex> lock(_servicesMutex);
+    for (const auto& serviceName : servicesToRemove) {
+      _advertisedServices.erase(serviceName);
+      auto handlerIt = _serviceHandlers.find(serviceName);
+      if (handlerIt != _serviceHandlers.end()) {
+        retiredHandlers.push_back(std::move(handlerIt->second));
+        _serviceHandlers.erase(handlerIt);
+      }
+    }
+  }
   for (const auto& serviceName : servicesToRemove) {
-    _advertisedServices.erase(serviceName);
-    _serviceHandlers.erase(serviceName);
     _transports->removeService(serviceName);
   }
+  retiredHandlers.clear();
 
   // Advertise new services
   for (const auto& serviceName : serviceNames) {
@@ -447,16 +465,26 @@ void Ros1FoxgloveBridge::updateAdvertisedServices(const std::vector<std::string>
       [this](const foxglove::ServiceRequest& req, foxglove::ServiceResponder&& res) {
         this->handleServiceRequest(req, std::move(res));
       });
+    foxglove::ServiceHandler* handlerPtr = handler.get();
 
-    _serviceHandlers.insert({serviceName, std::move(handler)});
+    const std::string serviceType = details.type;
 
-    if (!_transports->addService(serviceName, serviceSchema, *_serviceHandlers.at(serviceName))) {
+    // Populate the maps before registering with the SDK, so a request can
+    // never arrive for a service handleServiceRequest doesn't know about.
+    {
+      std::lock_guard<std::mutex> lock(_servicesMutex);
+      _serviceHandlers.insert({serviceName, std::move(handler)});
+      _advertisedServices.insert({serviceName, std::move(details)});
+    }
+
+    if (!_transports->addService(serviceName, serviceSchema, *handlerPtr)) {
+      std::lock_guard<std::mutex> lock(_servicesMutex);
       _serviceHandlers.erase(serviceName);
+      _advertisedServices.erase(serviceName);
       continue;
     }
 
-    ROS_INFO("Advertising service %s (%s)", serviceName.c_str(), details.type.c_str());
-    _advertisedServices.insert({serviceName, std::move(details)});
+    ROS_INFO("Advertising service %s (%s)", serviceName.c_str(), serviceType.c_str());
   }
 }
 
