@@ -5,6 +5,9 @@
 
   <node pkg="foxglove_bridge" type="foxglove_bridge" name="foxglove_bridge" output="screen">
     <param name="port" value="9876" />
+    <!-- Short deadline so the ServiceCallTimeout test completes quickly; the
+         timeout is enforced at master-poll granularity (up to ~5s late). -->
+    <param name="service_call_timeout_ms" value="1000" />
   </node>
 
   <test test-name="smoke_test" pkg="foxglove_bridge" type="smoke_test" time-limit="300.0" />

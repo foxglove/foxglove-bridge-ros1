@@ -14,6 +14,7 @@
 
 #include <gtest/gtest.h>
 #include <ros/ros.h>
+#include <roscpp/GetLoggers.h>
 #include <rosgraph_msgs/Clock.h>
 #include <std_msgs/String.h>
 #include <websocketpp/config/asio_client.hpp>
@@ -201,6 +202,51 @@ TEST(SmokeTest, ServiceCall) {
     foxglove::test::ReadUint32LE(reinterpret_cast<const uint8_t*>(response.data.data()));
   // The log4cxx backend provides a real logger hierarchy.
   EXPECT_GE(numLoggers, 1u);
+}
+
+TEST(SmokeTest, ServiceCallTimeout) {
+  // A service that never responds must produce a serviceCallFailure within
+  // the bridge's deadline (service_call_timeout_ms, 1000 in smoke.test plus
+  // up to one master-poll period of sweep granularity) instead of hanging
+  // the call forever.
+  ros::NodeHandle nh;
+  auto release = std::make_shared<std::promise<void>>();
+  auto releaseFuture = release->get_future().share();
+  boost::function<bool(roscpp::GetLoggers::Request&, roscpp::GetLoggers::Response&)>
+    hungCallback = [releaseFuture](roscpp::GetLoggers::Request&, roscpp::GetLoggers::Response&) {
+      // Block until the test releases us; bounded as a teardown backstop.
+      releaseFuture.wait_for(30s);
+      return true;
+    };
+  auto server = nh.advertiseService("/smoke/hung_service", hungCallback);
+
+  auto client = std::make_shared<Client>();
+  auto serviceFuture = client->waitForService("/smoke/hung_service");
+  ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
+  ASSERT_EQ(std::future_status::ready, serviceFuture.wait_for(DISCOVERY_TIMEOUT));
+  const auto service = serviceFuture.get();
+
+  auto failurePromise = std::make_shared<std::promise<std::string>>();
+  auto failureFuture = failurePromise->get_future();
+  auto fulfilled = std::make_shared<std::atomic<bool>>(false);
+  client->setTextMessageHandler([failurePromise, fulfilled](const std::string& payload) {
+    const auto msg = nlohmann::json::parse(payload);
+    if (msg.value("op", "") == "serviceCallFailure" && !fulfilled->exchange(true)) {
+      failurePromise->set_value(msg.value("message", ""));
+    }
+  });
+
+  foxglove::test::ServiceRequest request;
+  request.serviceId = service.id;
+  request.callId = 99;
+  request.encoding = "ros1";
+  client->sendServiceRequest(request);
+
+  ASSERT_EQ(std::future_status::ready, failureFuture.wait_for(DEFAULT_TIMEOUT));
+  EXPECT_NE(failureFuture.get().find("timed out"), std::string::npos);
+
+  // Unblock the hung handler so it doesn't stall suite teardown.
+  release->set_value();
 }
 
 TEST(SmokeTest, Parameters) {
