@@ -130,9 +130,13 @@ if (FOXGLOVE_BRIDGE_REMOTE_ACCESS)
 else()
   foxglove_sdk_add_cpp_library(foxglove_cpp_shared TYPE SHARED REMOTE_ACCESS OFF)
 endif()
+# INSTALL_RPATH only: build-tree binaries keep CMake's default build rpath,
+# which points at the linked libraries' actual locations (including the SDK
+# dist's libfoxglove.so) — so a plain catkin_make_isolated without --install
+# produces runnable binaries. The install step rewrites to the $ORIGIN-
+# relative rpaths for the installed layout.
 set_target_properties(foxglove_cpp_shared PROPERTIES
   INSTALL_RPATH "$ORIGIN"
-  BUILD_WITH_INSTALL_RPATH TRUE
 )
 
 add_library(foxglove_bridge_lib SHARED
@@ -158,7 +162,6 @@ endif()
 enable_strict_compiler_warnings(foxglove_bridge_lib)
 set_target_properties(foxglove_bridge_lib PROPERTIES
   INSTALL_RPATH "$ORIGIN"
-  BUILD_WITH_INSTALL_RPATH TRUE
 )
 
 add_executable(foxglove_bridge
@@ -170,7 +173,6 @@ target_link_libraries(foxglove_bridge
 enable_strict_compiler_warnings(foxglove_bridge)
 set_target_properties(foxglove_bridge PROPERTIES
   INSTALL_RPATH "$ORIGIN/../../lib"
-  BUILD_WITH_INSTALL_RPATH TRUE
 )
 
 if(CATKIN_ENABLE_TESTING)
