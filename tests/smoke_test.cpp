@@ -315,12 +315,24 @@ TEST(SmokeTest, FetchAsset) {
   );
   EXPECT_NE(content.find("smoke-bot"), std::string::npos);
 
-  // Path traversal must be rejected.
+  // Literal path traversal must be rejected.
   responseFuture = client->waitForFetchAssetResponse();
   client->fetchAsset("package://foxglove_bridge/../../../etc/passwd", 2);
   ASSERT_EQ(std::future_status::ready, responseFuture.wait_for(DEFAULT_TIMEOUT));
   response = responseFuture.get();
   EXPECT_EQ(response.requestId, 2u);
+  EXPECT_EQ(response.status, foxglove::test::FetchAssetStatus::Error);
+
+  // Percent-encoded traversal must also be rejected: resource_retriever
+  // decodes %2e, so a literal-only check would let this through. This URI
+  // ends in an allowlisted extension (so the allowlist passes) and, decoded,
+  // traverses out of the package and back into smoke.urdf — without the
+  // decode-aware ".." check it would resolve and succeed.
+  responseFuture = client->waitForFetchAssetResponse();
+  client->fetchAsset("package://foxglove_bridge/%2e%2e/foxglove_bridge/tests/assets/smoke.urdf", 3);
+  ASSERT_EQ(std::future_status::ready, responseFuture.wait_for(DEFAULT_TIMEOUT));
+  response = responseFuture.get();
+  EXPECT_EQ(response.requestId, 3u);
   EXPECT_EQ(response.status, foxglove::test::FetchAssetStatus::Error);
 }
 
