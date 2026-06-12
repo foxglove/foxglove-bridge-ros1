@@ -157,9 +157,11 @@ private:
   ros_babel_fish::IntegratedDescriptionProvider _descriptionProvider;
   std::mutex _descriptionProviderMutex;
 
-  // Declared before the containers it guards so it is destroyed after them:
-  // the ros::Subscribers in _subscriptions have callbacks that lock this
-  // mutex until the subscribers themselves are destroyed.
+  // These two mutexes and the _latchedChannels set are declared before the
+  // containers/subscribers they relate to, so they are destroyed AFTER them:
+  // the ros::Subscribers in _subscriptions have callbacks (rosMessageHandler)
+  // that lock both _subscriptionsMutex and _latchedChannelsMutex and touch
+  // _latchedChannels until the subscribers themselves are destroyed.
   //
   // Lock-order invariant (verified against the SDK internals): the gateway
   // runs onSubscribe/onUnsubscribe under its internal subscription lock, and
@@ -168,12 +170,8 @@ private:
   // destroying a live RawChannel takes the gateway subscription lock again,
   // which closes the cycle: channel.close() and channel destruction must
   // NEVER happen while _subscriptionsMutex is held (see channelsToClose in
-  // updateAdvertisedTopics). _latchedChannelsMutex below documents the
-  // QoS-classifier half of the same invariant.
+  // updateAdvertisedTopics).
   std::mutex _subscriptionsMutex;
-  std::unordered_map<ChannelId, foxglove::RawChannel> _channels;
-  std::unordered_map<ChannelId, ChannelSubscription> _subscriptions;
-
   // Channels with an observed latched publisher, for remote-access QoS
   // classification. Kept under its OWN mutex: the SDK invokes the QoS
   // classifier from inside the gateway session, which can run concurrently
@@ -183,6 +181,8 @@ private:
   // any SDK call.
   std::mutex _latchedChannelsMutex;
   std::unordered_set<ChannelId> _latchedChannels;
+  std::unordered_map<ChannelId, foxglove::RawChannel> _channels;
+  std::unordered_map<ChannelId, ChannelSubscription> _subscriptions;
 
   std::unordered_map<ClientChannelKey, ClientAdvertisement, ClientChannelKeyHash>
     _clientAdvertisedTopics;
