@@ -7,10 +7,10 @@
 #
 # The Foxglove SDK is downloaded by CMake as a pinned, SHA-verified release zip
 # during the build (see the FetchContent block in the package's CMakeLists.txt),
-# so no SDK pre-build is needed. Build from the foxglove-sdk repo root:
-#   docker build -f ros/Dockerfile.noetic -t foxglove-bridge-ros1 .
-# or via the ros/ Makefile:
-#   cd ros && make docker-build-noetic
+# so no SDK pre-build is needed. Build from the repo root:
+#   docker build -t foxglove-bridge-ros1 .
+# or via the Makefile:
+#   make docker-build
 #
 # Run against an external rosmaster and the Foxglove platform:
 #   docker run --rm --network host \
@@ -107,7 +107,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         nlohmann-json3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY ros/src/foxglove_bridge_ros1 /bridge_ws/src/foxglove_bridge_ros1
+# The repo root is the package; .dockerignore keeps .git out of the copy.
+COPY . /bridge_ws/src/foxglove_bridge_ros1
 
 ARG FOXGLOVE_BRIDGE_REMOTE_ACCESS=ON
 
@@ -125,6 +126,6 @@ RUN rm -f /bridge_ws/src/foxglove_bridge_ros1/COLCON_IGNORE \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DFOXGLOVE_BRIDGE_REMOTE_ACCESS=${FOXGLOVE_BRIDGE_REMOTE_ACCESS}
 
-COPY ros/src/foxglove_bridge_ros1/entrypoint.sh /entrypoint.sh
+COPY entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["rosrun", "foxglove_bridge_ros1", "foxglove_bridge"]

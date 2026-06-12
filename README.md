@@ -3,32 +3,32 @@
 ROS 1 Foxglove bridge. Connects ROS 1 topics, services, and parameters to
 Foxglove clients over a local WebSocket server and, when enabled, the
 Foxglove remote access gateway (LiveKit/WebRTC — handled entirely by the
-SDK). Deliberately a parallel implementation to the ROS 2 `foxglove_bridge`,
-sharing no code with it (see ../../README.md for the architecture decision);
-the transport-facing layer (transport_manager, capabilities, logging, types,
-utils) is a copy of the equivalent code in the ROS 2 bridge.
+SDK). Deliberately a parallel implementation to the ROS 2 `foxglove_bridge`
+(which lives in the [foxglove-sdk](https://github.com/foxglove/foxglove-sdk)
+repository), sharing no code with it; the transport-facing layer
+(transport_manager, capabilities, logging, types, utils) is a copy of the
+equivalent code in the ROS 2 bridge.
 
 ## Building
 
 Noetic is only released for Ubuntu 20.04 (focal, glibc 2.31), but the SDK's
 remote access support requires glibc >= 2.35. The supported build is therefore
 a from-source Noetic on Ubuntu 22.04 (jammy), via Docker. Two jammy
-compatibility substitutions are made (see Dockerfile.noetic): rosconsole comes
+compatibility substitutions are made (see the Dockerfile): rosconsole comes
 from the ROS One (ros-o) fork, which supports jammy's log4cxx 0.12, and
 ros_babel_fish is built as C++17 (log4cxx 0.12 headers require it). From the
 repo root:
 
 ```sh
-cd ros && make docker-build-noetic
+make docker-build
 ```
 
 The Foxglove SDK is downloaded by CMake during the build as a pinned,
 SHA-verified release zip (see the FetchContent block in CMakeLists.txt). To
-build against a locally-modified SDK instead, run `make build-cpp-dist` at the
-repo root and point the build at it by re-adding a
-`COPY cpp/dist /sdk/cpp/dist` line and a
-`-DFETCHCONTENT_SOURCE_DIR_FOXGLOVE_SDK=/sdk/cpp/dist` cmake arg in
-Dockerfile.noetic.
+build against a locally-modified SDK instead, run `make build-cpp-dist` in a
+foxglove-sdk checkout and point the build at the resulting `cpp/dist` tree by
+adding a `COPY` of it and a
+`-DFETCHCONTENT_SOURCE_DIR_FOXGLOVE_SDK=<path>` cmake arg in the Dockerfile.
 
 Run against an external rosmaster (e.g. a robot running a stock focal
 Noetic — the bridge interoperates over TCPROS; the robot side needs no
@@ -39,7 +39,7 @@ docker run --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
   -e ROS_HOSTNAME=localhost \
   -e FOXGLOVE_DEVICE_TOKEN=<token> \
-  foxglove-bridge-ros1-noetic \
+  foxglove-bridge-ros1 \
   rosrun foxglove_bridge_ros1 foxglove_bridge _remote_access:=true
 ```
 
@@ -61,7 +61,7 @@ needs no mount; only the assets it references do.)
 ## Testing
 
 ```sh
-cd ros && make docker-test-noetic
+make docker-test
 ```
 
 Runs the rostest-based smoke suite (`tests/smoke.test`) in the image: a master,
@@ -96,6 +96,7 @@ the ws-protocol, using the test client shared with the ROS 2 bridge tests.
   topic is only classified Reliable after a latched publisher has been seen
   (ROS 1 reveals latching only in per-connection headers).
 - `ROS_VERSION == 1` conditions plus a `COLCON_IGNORE` marker keep ROS 2
-  colcon/rosdep away from this package; `Dockerfile.noetic` removes the marker
+  colcon/rosdep away from this package; the Dockerfile removes the marker
   in its private workspace copy because modern `catkin_pkg` honors
-  COLCON_IGNORE as well.
+  COLCON_IGNORE as well. (These are holdovers from when the package lived
+  in the foxglove-sdk monorepo next to the ROS 2 bridge.)
