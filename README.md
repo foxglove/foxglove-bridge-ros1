@@ -18,6 +18,11 @@ repo root:
 make docker-build
 ```
 
+The resulting image is a slim runtime (just the Noetic and bridge install
+spaces plus their runtime dependencies); the Dockerfile's `bridge` stage
+keeps the full build environment, and is what `make docker-test` builds and
+runs in.
+
 The Foxglove SDK is downloaded by CMake during the build as a pinned,
 SHA-verified release zip (see the FetchContent block in CMakeLists.txt). The
 Noetic sources are pinned too (noetic.rosinstall, one released tarball per
