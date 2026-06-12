@@ -120,6 +120,10 @@ private:
   /// updates, with exponential backoff (100ms doubling up to ~max_update_ms).
   void pollThread();
 
+  /// Wake the poll thread to run a discovery/graph cycle now instead of
+  /// waiting out the backoff (e.g. after a client advertises a topic).
+  void pokePoll();
+
   void updateAdvertisedTopics(const std::vector<TopicAndDatatype>& topics);
   void updateAdvertisedServices(const std::vector<std::string>& serviceNames);
 
@@ -223,6 +227,9 @@ private:
   std::unique_ptr<std::thread> _pollThread;
   std::mutex _pollMutex;
   std::condition_variable _pollCv;
+  // Set by pokePoll() to wake the poll thread before its backoff elapses;
+  // consumed by the poll loop. Guarded by _pollMutex.
+  bool _pollPoke = false;
 
   size_t _maxUpdatePeriodMs = 5000;
   int _serviceTypeRetrievalTimeoutMs = 250;
