@@ -1,12 +1,12 @@
-#include <map>
+#include <foxglove_bridge/param_interface.hpp>
+#include <foxglove_bridge/utils.hpp>
 
 #include <ros/master.h>
 #include <ros/names.h>
 #include <xmlrpcpp/XmlRpcException.h>
 #include <xmlrpcpp/XmlRpcValue.h>
 
-#include <foxglove_bridge/utils.hpp>
-#include <foxglove_bridge/param_interface.hpp>
+#include <map>
 
 namespace foxglove_bridge {
 
@@ -39,8 +39,7 @@ foxglove::ParameterValue valueFromRosParam(XmlRpc::XmlRpcValue& value) {
       return foxglove::ParameterValue(std::move(values));
     }
     default:
-      throw std::runtime_error("Unsupported parameter type " +
-                               std::to_string(value.getType()));
+      throw std::runtime_error("Unsupported parameter type " + std::to_string(value.getType()));
   }
 }
 
@@ -60,8 +59,9 @@ foxglove::Parameter fromRosParam(const std::string& name, XmlRpc::XmlRpcValue& v
   }
 }
 
-XmlRpc::XmlRpcValue toRosParam(const foxglove::ParameterValueView& value,
-                               foxglove::ParameterType type) {
+XmlRpc::XmlRpcValue toRosParam(
+  const foxglove::ParameterValueView& value, foxglove::ParameterType type
+) {
   using XmlRpc::XmlRpcValue;
   if (value.is<bool>()) {
     return XmlRpcValue(value.get<bool>());
@@ -95,14 +95,17 @@ XmlRpc::XmlRpcValue toRosParam(const foxglove::ParameterValueView& value,
 
 }  // namespace
 
-Ros1ParameterInterface::Ros1ParameterInterface(ros::NodeHandle nh,
-                                               std::vector<std::regex> paramWhitelistPatterns)
+Ros1ParameterInterface::Ros1ParameterInterface(
+  ros::NodeHandle nh, std::vector<std::regex> paramWhitelistPatterns
+)
     : _nh(std::move(nh))
     , _paramWhitelistPatterns(std::move(paramWhitelistPatterns)) {
-  _xmlrpcServer.bind("paramUpdate", [this](XmlRpc::XmlRpcValue& params,
-                                           XmlRpc::XmlRpcValue& result) {
-    parameterUpdates(params, result);
-  });
+  _xmlrpcServer.bind(
+    "paramUpdate",
+    [this](XmlRpc::XmlRpcValue& params, XmlRpc::XmlRpcValue& result) {
+      parameterUpdates(params, result);
+    }
+  );
   _xmlrpcServer.start();
 }
 
@@ -130,8 +133,9 @@ void Ros1ParameterInterface::shutdown() {
   _xmlrpcServer.shutdown();
 }
 
-ParameterList Ros1ParameterInterface::getParams(const std::vector<std::string_view>& paramNames,
-                                                const std::chrono::duration<double>& timeout) {
+ParameterList Ros1ParameterInterface::getParams(
+  const std::vector<std::string_view>& paramNames, const std::chrono::duration<double>& timeout
+) {
   (void)timeout;
 
   const bool allParametersRequested = paramNames.empty();
@@ -170,8 +174,9 @@ ParameterList Ros1ParameterInterface::getParams(const std::vector<std::string_vi
   return params;
 }
 
-void Ros1ParameterInterface::setParams(const ParameterList& params,
-                                       const std::chrono::duration<double>& timeout) {
+void Ros1ParameterInterface::setParams(
+  const ParameterList& params, const std::chrono::duration<double>& timeout
+) {
   (void)timeout;
 
   for (const auto& param : params) {
@@ -194,8 +199,9 @@ void Ros1ParameterInterface::setParams(const ParameterList& params,
   }
 }
 
-bool Ros1ParameterInterface::executeParamSubscription(const std::string& opName,
-                                                      const std::string& paramName) {
+bool Ros1ParameterInterface::executeParamSubscription(
+  const std::string& opName, const std::string& paramName
+) {
   // Registered under a distinct caller id so the master doesn't conflate these
   // subscriptions with roscpp's own (cached-parameter) registrations.
   XmlRpc::XmlRpcValue params, result, payload;
@@ -240,8 +246,9 @@ void Ros1ParameterInterface::setParamUpdateCallback(ParamUpdateFunc paramUpdateF
   _paramUpdateFunc = std::move(paramUpdateFunc);
 }
 
-void Ros1ParameterInterface::parameterUpdates(XmlRpc::XmlRpcValue& params,
-                                              XmlRpc::XmlRpcValue& result) {
+void Ros1ParameterInterface::parameterUpdates(
+  XmlRpc::XmlRpcValue& params, XmlRpc::XmlRpcValue& result
+) {
   result[0] = 1;
   result[1] = std::string("");
   result[2] = 0;

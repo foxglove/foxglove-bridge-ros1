@@ -1,13 +1,13 @@
 #pragma once
 
+#include <foxglove/parameter.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <variant>
 #include <vector>
-
-#include <foxglove/parameter.hpp>
 
 namespace foxglove::test {
 

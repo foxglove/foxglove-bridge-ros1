@@ -1,16 +1,16 @@
 #pragma once
 
+#include <foxglove_bridge/transport_manager.hpp>
+
+#include <ros/ros.h>
+#include <ros/xmlrpc_manager.h>
+
 #include <functional>
 #include <mutex>
 #include <regex>
 #include <string>
 #include <unordered_set>
 #include <vector>
-
-#include <ros/ros.h>
-#include <ros/xmlrpc_manager.h>
-
-#include <foxglove_bridge/transport_manager.hpp>
 
 namespace foxglove_bridge {
 
@@ -28,10 +28,11 @@ public:
   Ros1ParameterInterface(ros::NodeHandle nh, std::vector<std::regex> paramWhitelistPatterns);
   ~Ros1ParameterInterface() override;
 
-  ParameterList getParams(const std::vector<std::string_view>& paramNames,
-                          const std::chrono::duration<double>& timeout) override;
-  void setParams(const ParameterList& params,
-                 const std::chrono::duration<double>& timeout) override;
+  ParameterList getParams(
+    const std::vector<std::string_view>& paramNames, const std::chrono::duration<double>& timeout
+  ) override;
+  void setParams(const ParameterList& params, const std::chrono::duration<double>& timeout)
+    override;
   void subscribeParams(const std::vector<std::string_view>& paramNames) override;
   void unsubscribeParams(const std::vector<std::string_view>& paramNames) override;
 

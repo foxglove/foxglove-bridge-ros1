@@ -1,12 +1,12 @@
+#include <foxglove_bridge/capabilities.hpp>
+#include <foxglove_bridge/transport_manager.hpp>
+
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
 #include <type_traits>
-
-#include <foxglove_bridge/capabilities.hpp>
-#include <foxglove_bridge/transport_manager.hpp>
 
 namespace foxglove_bridge {
 
@@ -67,8 +67,9 @@ ParameterList cloneParameterList(const ParameterList& params) {
   return cloned;
 }
 
-TransportManager::TransportManager(TransportOptions options, BridgeDelegate& delegate,
-                                   ParameterBackend* paramBackend, Logger logger)
+TransportManager::TransportManager(
+  TransportOptions options, BridgeDelegate& delegate, ParameterBackend* paramBackend, Logger logger
+)
     : _log(std::move(logger))
     , _delegate(delegate)
     , _paramBackend(paramBackend)
@@ -117,8 +118,10 @@ TransportManager::TransportManager(TransportOptions options, BridgeDelegate& del
 
   auto maybeSdkServer = foxglove::WebSocketServer::create(std::move(serverOptions));
   if (!maybeSdkServer.has_value()) {
-    throw std::runtime_error(std::string("Couldn't initialize websocket server: ") +
-                             foxglove::strerror(maybeSdkServer.error()));
+    throw std::runtime_error(
+      std::string("Couldn't initialize websocket server: ") +
+      foxglove::strerror(maybeSdkServer.error())
+    );
   }
 
   // Constructing an SDK server also starts it listening automatically
@@ -131,8 +134,11 @@ TransportManager::TransportManager(TransportOptions options, BridgeDelegate& del
     sysinfoOptions.refresh_interval = options.sysinfoRefreshInterval;
     auto maybeSysinfo = foxglove::SystemInfoPublisher::create(std::move(sysinfoOptions));
     if (!maybeSysinfo.has_value()) {
-      _log.log(BridgeLogLevel::Warn, "Couldn't start system info publisher: %s",
-               foxglove::strerror(maybeSysinfo.error()));
+      _log.log(
+        BridgeLogLevel::Warn,
+        "Couldn't start system info publisher: %s",
+        foxglove::strerror(maybeSysinfo.error())
+      );
     } else {
       _sysinfoPublisher =
         std::make_unique<foxglove::SystemInfoPublisher>(std::move(maybeSysinfo.value()));
@@ -143,7 +149,8 @@ TransportManager::TransportManager(TransportOptions options, BridgeDelegate& del
   if (options.remoteAccess) {
     throw std::runtime_error(
       "remote_access is set to true but the bridge was not built with "
-      "FOXGLOVE_BRIDGE_REMOTE_ACCESS=ON. Remote access is not available.");
+      "FOXGLOVE_BRIDGE_REMOTE_ACCESS=ON. Remote access is not available."
+    );
   }
 #else
   if (options.remoteAccess) {
@@ -172,49 +179,52 @@ void TransportManager::wireWebSocketCallbacks(foxglove::WebSocketServerOptions& 
   serverOptions.callbacks.onConnectionGraphUnsubscribe = [this]() {
     _delegate.onConnectionGraphSubscribe(false);
   };
-  serverOptions.callbacks.onSubscribe = [this](ChannelId channelId,
-                                               const foxglove::ClientMetadata& client) {
-    _delegate.onSubscribe(channelId, client.id, false, client.sink_id);
-  };
-  serverOptions.callbacks.onUnsubscribe = [this](ChannelId channelId,
-                                                 const foxglove::ClientMetadata& client) {
-    _delegate.onUnsubscribe(channelId, client.id, false);
-  };
+  serverOptions.callbacks.onSubscribe =
+    [this](ChannelId channelId, const foxglove::ClientMetadata& client) {
+      _delegate.onSubscribe(channelId, client.id, false, client.sink_id);
+    };
+  serverOptions.callbacks.onUnsubscribe =
+    [this](ChannelId channelId, const foxglove::ClientMetadata& client) {
+      _delegate.onUnsubscribe(channelId, client.id, false);
+    };
 
   if (hasCapability(foxglove::WebSocketServerCapabilities::ClientPublish)) {
-    serverOptions.callbacks.onClientAdvertise = [this](ClientId clientId,
-                                                       const foxglove::ClientChannel& channel) {
-      _delegate.onClientAdvertise(toClientChannelInfo(channel), clientId, false);
-    };
-    serverOptions.callbacks.onClientUnadvertise = [this](ClientId clientId,
-                                                         ChannelId clientChannelId) {
-      _delegate.onClientUnadvertise(clientChannelId, clientId, false);
-    };
-    serverOptions.callbacks.onMessageData = [this](ClientId clientId, ChannelId clientChannelId,
-                                                   const std::byte* data, size_t dataLen) {
-      _delegate.onClientMessage(clientChannelId, clientId, false, data, dataLen);
-    };
+    serverOptions.callbacks.onClientAdvertise =
+      [this](ClientId clientId, const foxglove::ClientChannel& channel) {
+        _delegate.onClientAdvertise(toClientChannelInfo(channel), clientId, false);
+      };
+    serverOptions.callbacks.onClientUnadvertise =
+      [this](ClientId clientId, ChannelId clientChannelId) {
+        _delegate.onClientUnadvertise(clientChannelId, clientId, false);
+      };
+    serverOptions.callbacks.onMessageData =
+      [this](ClientId clientId, ChannelId clientChannelId, const std::byte* data, size_t dataLen) {
+        _delegate.onClientMessage(clientChannelId, clientId, false, data, dataLen);
+      };
   }
 
   if (hasCapability(foxglove::WebSocketServerCapabilities::Assets)) {
-    serverOptions.fetch_asset = [this](std::string_view uri,
-                                       foxglove::FetchAssetResponder&& responder) {
-      _delegate.fetchAsset(uri, std::move(responder));
-    };
+    serverOptions.fetch_asset =
+      [this](std::string_view uri, foxglove::FetchAssetResponder&& responder) {
+        _delegate.fetchAsset(uri, std::move(responder));
+      };
   }
 
   if (_paramBackend != nullptr &&
       hasCapability(foxglove::WebSocketServerCapabilities::Parameters)) {
-    wireParameterCallbacks(serverOptions.callbacks.onParametersSubscribe,
-                           serverOptions.callbacks.onParametersUnsubscribe,
-                           serverOptions.parameter_handler);
+    wireParameterCallbacks(
+      serverOptions.callbacks.onParametersSubscribe,
+      serverOptions.callbacks.onParametersUnsubscribe,
+      serverOptions.parameter_handler
+    );
   }
 }
 
 #ifdef FOXGLOVE_REMOTE_ACCESS
 void TransportManager::createGateway(
   const TransportOptions& options,
-  const std::optional<std::map<std::string, std::string>>& serverInfo) {
+  const std::optional<std::map<std::string, std::string>>& serverInfo
+) {
   std::string deviceToken = options.deviceToken;
   if (deviceToken.empty()) {
     const char* envToken = std::getenv("FOXGLOVE_DEVICE_TOKEN");
@@ -223,9 +233,11 @@ void TransportManager::createGateway(
     }
   }
   if (deviceToken.empty()) {
-    _log.log(BridgeLogLevel::Fatal,
-             "remote_access is enabled but no device_token was provided. "
-             "Set FOXGLOVE_DEVICE_TOKEN or pass the device_token parameter.");
+    _log.log(
+      BridgeLogLevel::Fatal,
+      "remote_access is enabled but no device_token was provided. "
+      "Set FOXGLOVE_DEVICE_TOKEN or pass the device_token parameter."
+    );
     throw std::runtime_error("missing device_token for remote_access");
   }
 
@@ -248,22 +260,26 @@ void TransportManager::createGateway(
     [this](foxglove::RemoteAccessConnectionStatus status) {
       _delegate.onGatewayConnectionStatusChanged(status);
     };
-  gatewayOptions.callbacks.onSubscribe = [this](uint32_t clientId,
-                                                const foxglove::ChannelDescriptor& channel) {
-    auto sinkId = _gateway->sinkId();
-    if (!sinkId.has_value()) {
-      _log.log(BridgeLogLevel::Warn,
-               "Gateway: subscribe request for channel %lu (\"%s\") from client %u "
-               "but gateway session has no sink ID (reconnecting?); "
-               "cached transient_local messages will not be replayed",
-               channel.id(), std::string(channel.topic()).c_str(), clientId);
-    }
-    _delegate.onSubscribe(channel.id(), clientId, true, sinkId);
-  };
-  gatewayOptions.callbacks.onUnsubscribe = [this](uint32_t clientId,
-                                                  const foxglove::ChannelDescriptor& channel) {
-    _delegate.onUnsubscribe(channel.id(), clientId, true);
-  };
+  gatewayOptions.callbacks.onSubscribe =
+    [this](uint32_t clientId, const foxglove::ChannelDescriptor& channel) {
+      auto sinkId = _gateway->sinkId();
+      if (!sinkId.has_value()) {
+        _log.log(
+          BridgeLogLevel::Warn,
+          "Gateway: subscribe request for channel %lu (\"%s\") from client %u "
+          "but gateway session has no sink ID (reconnecting?); "
+          "cached transient_local messages will not be replayed",
+          channel.id(),
+          std::string(channel.topic()).c_str(),
+          clientId
+        );
+      }
+      _delegate.onSubscribe(channel.id(), clientId, true, sinkId);
+    };
+  gatewayOptions.callbacks.onUnsubscribe =
+    [this](uint32_t clientId, const foxglove::ChannelDescriptor& channel) {
+      _delegate.onUnsubscribe(channel.id(), clientId, true);
+    };
   gatewayOptions.qos_classifier = [this](const foxglove::ChannelDescriptor& channel) {
     return _delegate.classifyRemoteAccessQos(channel);
   };
@@ -285,29 +301,34 @@ void TransportManager::createGateway(
           _log.log(BridgeLogLevel::Error, "Gateway: client unadvertise failed: %s", ex.what());
         }
       };
-    gatewayOptions.callbacks.onMessageData =
-      [this](uint32_t clientId, const foxglove::ChannelDescriptor& channel, const std::byte* data,
-             size_t dataLen) {
-        try {
-          _delegate.onClientMessage(channel.id(), clientId, true, data, dataLen);
-        } catch (const std::exception& ex) {
-          _log.log(BridgeLogLevel::Error, "Gateway: client message failed: %s", ex.what());
-        }
-      };
+    gatewayOptions.callbacks.onMessageData = [this](
+                                               uint32_t clientId,
+                                               const foxglove::ChannelDescriptor& channel,
+                                               const std::byte* data,
+                                               size_t dataLen
+                                             ) {
+      try {
+        _delegate.onClientMessage(channel.id(), clientId, true, data, dataLen);
+      } catch (const std::exception& ex) {
+        _log.log(BridgeLogLevel::Error, "Gateway: client message failed: %s", ex.what());
+      }
+    };
   }
 
   if (hasCapability(foxglove::WebSocketServerCapabilities::Assets)) {
-    gatewayOptions.fetch_asset = [this](std::string_view uri,
-                                        foxglove::FetchAssetResponder&& responder) {
-      _delegate.fetchAsset(uri, std::move(responder));
-    };
+    gatewayOptions.fetch_asset =
+      [this](std::string_view uri, foxglove::FetchAssetResponder&& responder) {
+        _delegate.fetchAsset(uri, std::move(responder));
+      };
   }
 
   if (_paramBackend != nullptr &&
       hasCapability(foxglove::WebSocketServerCapabilities::Parameters)) {
-    wireParameterCallbacks(gatewayOptions.callbacks.onParametersSubscribe,
-                           gatewayOptions.callbacks.onParametersUnsubscribe,
-                           gatewayOptions.parameter_handler);
+    wireParameterCallbacks(
+      gatewayOptions.callbacks.onParametersSubscribe,
+      gatewayOptions.callbacks.onParametersUnsubscribe,
+      gatewayOptions.parameter_handler
+    );
   }
 
   if (hasCapability(foxglove::WebSocketServerCapabilities::ConnectionGraph)) {
@@ -321,8 +342,10 @@ void TransportManager::createGateway(
 
   auto maybeGateway = foxglove::RemoteAccessGateway::create(std::move(gatewayOptions));
   if (!maybeGateway.has_value()) {
-    throw std::runtime_error(std::string("Failed to create remote access gateway: ") +
-                             foxglove::strerror(maybeGateway.error()));
+    throw std::runtime_error(
+      std::string("Failed to create remote access gateway: ") +
+      foxglove::strerror(maybeGateway.error())
+    );
   }
   _gateway = std::make_unique<foxglove::RemoteAccessGateway>(std::move(maybeGateway.value()));
   _log.log(BridgeLogLevel::Info, "Remote access gateway started");
@@ -385,19 +408,28 @@ bool TransportManager::hasGateway() const {
 #endif
 }
 
-bool TransportManager::addService(const std::string& name, foxglove::ServiceSchema& schema,
-                                  foxglove::ServiceHandler& handler) {
+bool TransportManager::addService(
+  const std::string& name, foxglove::ServiceSchema& schema, foxglove::ServiceHandler& handler
+) {
   auto serviceResult = foxglove::Service::create(name, schema, handler);
   if (!serviceResult.has_value()) {
-    _log.log(BridgeLogLevel::Error, "Failed to create service %s: %s", name.c_str(),
-             foxglove::strerror(serviceResult.error()));
+    _log.log(
+      BridgeLogLevel::Error,
+      "Failed to create service %s: %s",
+      name.c_str(),
+      foxglove::strerror(serviceResult.error())
+    );
     return false;
   }
 
   auto addServiceError = _server->addService(std::move(serviceResult.value()));
   if (addServiceError != foxglove::FoxgloveError::Ok) {
-    _log.log(BridgeLogLevel::Error, "Failed to add service %s to server: %s", name.c_str(),
-             foxglove::strerror(addServiceError));
+    _log.log(
+      BridgeLogLevel::Error,
+      "Failed to add service %s to server: %s",
+      name.c_str(),
+      foxglove::strerror(addServiceError)
+    );
     return false;
   }
 
@@ -407,12 +439,20 @@ bool TransportManager::addService(const std::string& name, foxglove::ServiceSche
     if (gatewayServiceResult.has_value()) {
       auto gatewayAddError = _gateway->addService(std::move(gatewayServiceResult.value()));
       if (gatewayAddError != foxglove::FoxgloveError::Ok) {
-        _log.log(BridgeLogLevel::Error, "Failed to add service %s to gateway: %s", name.c_str(),
-                 foxglove::strerror(gatewayAddError));
+        _log.log(
+          BridgeLogLevel::Error,
+          "Failed to add service %s to gateway: %s",
+          name.c_str(),
+          foxglove::strerror(gatewayAddError)
+        );
       }
     } else {
-      _log.log(BridgeLogLevel::Error, "Failed to create gateway service %s: %s", name.c_str(),
-               foxglove::strerror(gatewayServiceResult.error()));
+      _log.log(
+        BridgeLogLevel::Error,
+        "Failed to create gateway service %s: %s",
+        name.c_str(),
+        foxglove::strerror(gatewayServiceResult.error())
+      );
     }
   }
 #endif
@@ -423,15 +463,23 @@ bool TransportManager::addService(const std::string& name, foxglove::ServiceSche
 void TransportManager::removeService(const std::string& name) {
   auto error = _server->removeService(name);
   if (error != foxglove::FoxgloveError::Ok) {
-    _log.log(BridgeLogLevel::Error, "Failed to remove service %s: %s", name.c_str(),
-             foxglove::strerror(error));
+    _log.log(
+      BridgeLogLevel::Error,
+      "Failed to remove service %s: %s",
+      name.c_str(),
+      foxglove::strerror(error)
+    );
   }
 #ifdef FOXGLOVE_REMOTE_ACCESS
   if (_gateway) {
     auto gatewayError = _gateway->removeService(name);
     if (gatewayError != foxglove::FoxgloveError::Ok) {
-      _log.log(BridgeLogLevel::Error, "Failed to remove service %s from gateway: %s", name.c_str(),
-               foxglove::strerror(gatewayError));
+      _log.log(
+        BridgeLogLevel::Error,
+        "Failed to remove service %s from gateway: %s",
+        name.c_str(),
+        foxglove::strerror(gatewayError)
+      );
     }
   }
 #endif
@@ -458,7 +506,8 @@ void TransportManager::publishParameterValues(const ParameterList& parameters) {
 void TransportManager::wireParameterCallbacks(
   std::function<void(const std::vector<std::string_view>&)>& onSubscribe,
   std::function<void(const std::vector<std::string_view>&)>& onUnsubscribe,
-  foxglove::ParameterHandler& handler) {
+  foxglove::ParameterHandler& handler
+) {
   onSubscribe = [this](const std::vector<std::string_view>& names) {
     SubscribeParamsOp op;
     op.names.reserve(names.size());
@@ -475,9 +524,12 @@ void TransportManager::wireParameterCallbacks(
     }
     enqueueParameterOp(std::move(op));
   };
-  handler.onGet = [this](uint32_t /*clientId*/, std::optional<std::string_view> /*requestId*/,
-                         const std::vector<std::string_view>& names,
-                         foxglove::GetParametersResponder&& responder) {
+  handler.onGet = [this](
+                    uint32_t /*clientId*/,
+                    std::optional<std::string_view> /*requestId*/,
+                    const std::vector<std::string_view>& names,
+                    foxglove::GetParametersResponder&& responder
+                  ) {
     GetParamsOp op{{}, std::move(responder)};
     op.names.reserve(names.size());
     for (const auto& name : names) {
@@ -485,9 +537,12 @@ void TransportManager::wireParameterCallbacks(
     }
     enqueueParameterOp(std::move(op));
   };
-  handler.onSet = [this](uint32_t /*clientId*/, std::optional<std::string_view> /*requestId*/,
-                         const std::vector<foxglove::ParameterView>& params,
-                         foxglove::SetParametersResponder&& responder) {
+  handler.onSet = [this](
+                    uint32_t /*clientId*/,
+                    std::optional<std::string_view> /*requestId*/,
+                    const std::vector<foxglove::ParameterView>& params,
+                    foxglove::SetParametersResponder&& responder
+                  ) {
     SetParamsOp op{{}, std::move(responder)};
     op.parameters.reserve(params.size());
     for (const auto& param : params) {
@@ -536,7 +591,8 @@ void TransportManager::parameterWorkerLoop() {
           this->handleUnsubscribeParams(std::move(concrete));
         }
       },
-      op);
+      op
+    );
 
     lock.lock();
   }

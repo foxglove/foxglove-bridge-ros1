@@ -1,11 +1,12 @@
-#include <unordered_map>
-
 #include <foxglove_bridge/capabilities.hpp>
+
+#include <unordered_map>
 
 namespace foxglove_bridge {
 
 foxglove::WebSocketServerCapabilities processCapabilities(
-  const std::vector<std::string>& capabilities) {
+  const std::vector<std::string>& capabilities
+) {
   const std::unordered_map<std::string, foxglove::WebSocketServerCapabilities>
     STRING_TO_CAPABILITY = {
       {"clientPublish", foxglove::WebSocketServerCapabilities::ClientPublish},
@@ -26,9 +27,9 @@ foxglove::WebSocketServerCapabilities processCapabilities(
 
 #ifdef FOXGLOVE_REMOTE_ACCESS
 foxglove::RemoteAccessGatewayCapabilities toGatewayCapabilities(
-  foxglove::WebSocketServerCapabilities capabilities) {
-  foxglove::RemoteAccessGatewayCapabilities out =
-    foxglove::RemoteAccessGatewayCapabilities::None;
+  foxglove::WebSocketServerCapabilities capabilities
+) {
+  foxglove::RemoteAccessGatewayCapabilities out = foxglove::RemoteAccessGatewayCapabilities::None;
   if (hasCapability(capabilities, foxglove::WebSocketServerCapabilities::ClientPublish)) {
     out = out | foxglove::RemoteAccessGatewayCapabilities::ClientPublish;
   }
