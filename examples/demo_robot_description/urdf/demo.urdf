@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<!-- Single link with multiple visuals: renders in the 3D panel without any
+     TF or robot_state_publisher. The head mesh exercises fetchAsset's
+     package:// resolution; the primitives render without asset fetching. -->
+<robot name="demo_robot">
+  <link name="base_link">
+    <!-- chassis -->
+    <visual>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.3 0.2 0.1"/>
+      </geometry>
+      <material name="chassis_blue">
+        <color rgba="0.2 0.4 0.8 1.0"/>
+      </material>
+    </visual>
+    <!-- mast -->
+    <visual>
+      <origin xyz="0.1 0 0.2" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.02" length="0.2"/>
+      </geometry>
+      <material name="mast_grey">
+        <color rgba="0.6 0.6 0.6 1.0"/>
+      </material>
+    </visual>
+    <!-- sensor head: fetched from the bridge container via fetchAsset -->
+    <visual>
+      <origin xyz="0.1 0 0.36" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://demo_robot_description/meshes/head.stl"/>
+      </geometry>
+      <material name="head_orange">
+        <color rgba="0.95 0.5 0.1 1.0"/>
+      </material>
+    </visual>
+  </link>
+</robot>

@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>demo_robot_description</name>
+  <version>0.0.1</version>
+  <description>
+    Minimal description package for demonstrating fetchAsset through the
+    bridge: a single-link URDF (so no TF is required to render it) whose
+    visuals include a mesh referenced by a package:// URI. Mount this
+    directory into the bridge container at
+    /opt/foxglove/share/demo_robot_description so resource_retriever can
+    resolve the mesh.
+  </description>
+  <maintainer email="ros-tooling@foxglove.dev">Foxglove</maintainer>
+  <license>MIT</license>
+</package>
