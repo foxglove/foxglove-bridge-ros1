@@ -233,13 +233,20 @@ TEST(SmokeTest, Parameters) {
   EXPECT_TRUE(nh.getParam("/smoke/param", rosValue));
   EXPECT_EQ(rosValue, "updated");
 
-  // Subscribe; an out-of-band change must be pushed by the master.
+  // Subscribe; an out-of-band change must be pushed by the master. The
+  // subscription travels client -> bridge -> master before a set becomes
+  // observable, so set the parameter repeatedly until the push arrives
+  // (mirroring the ClientPublish pattern) rather than sleeping a fixed time.
   client->subscribeParameterUpdates({"/smoke/param"});
-  // Give the master registration a moment to take effect.
-  std::this_thread::sleep_for(1s);
   auto updateFuture = client->waitForParameters();
-  nh.setParam("/smoke/param", "pushed");
-  ASSERT_EQ(std::future_status::ready, updateFuture.wait_for(DEFAULT_TIMEOUT));
+  const auto deadline = std::chrono::steady_clock::now() + DEFAULT_TIMEOUT;
+  std::future_status updateStatus = std::future_status::timeout;
+  while (updateStatus != std::future_status::ready &&
+         std::chrono::steady_clock::now() < deadline) {
+    nh.setParam("/smoke/param", "pushed");
+    updateStatus = updateFuture.wait_for(500ms);
+  }
+  ASSERT_EQ(std::future_status::ready, updateStatus);
   params = updateFuture.get();
   ASSERT_EQ(params.size(), 1u);
   EXPECT_EQ(params[0].name(), "/smoke/param");
@@ -270,6 +277,11 @@ TEST(SmokeTest, FetchAsset) {
   EXPECT_EQ(response.status, foxglove::test::FetchAssetStatus::Error);
 }
 
+// NOTE: /use_sim_time is set globally by smoke.test, so once this test
+// publishes /clock, the bridge broadcasts TIME frames to every connected
+// client for the remainder of the process — regardless of test order. That
+// is safe because all binary-message handlers in the test client check their
+// opcode before parsing; new handlers must do the same.
 TEST(SmokeTest, TimeBroadcast) {
   ros::NodeHandle nh;
   auto clockPublisher = nh.advertise<rosgraph_msgs::Clock>("/clock", 1);
