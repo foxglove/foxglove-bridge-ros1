@@ -16,13 +16,18 @@ docker-build-test-image:
 		--build-arg FOXGLOVE_BRIDGE_REMOTE_ACCESS=$(FOXGLOVE_BRIDGE_REMOTE_ACCESS) \
 		-t foxglove-bridge-ros1-build .
 
-.PHONY: docker-test
-docker-test: docker-build-test-image
+# Run the smoke suite in an already-built test image (CI builds the image
+# with its own caching and then calls this).
+.PHONY: docker-test-run
+docker-test-run:
 	docker run --rm foxglove-bridge-ros1-build bash -c "\
 		cd /bridge_ws \
 		&& catkin_make_isolated --install --install-space /opt/foxglove \
 			--catkin-make-args run_tests \
 		&& catkin_test_results build_isolated"
+
+.PHONY: docker-test
+docker-test: docker-build-test-image docker-test-run
 
 # Build and test against a locally-built SDK instead of the pinned release
 # zip: point FOXGLOVE_CPP_SDK_DIR at a `cpp/dist` tree produced by
