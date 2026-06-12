@@ -313,11 +313,25 @@ void Ros1FoxgloveBridge::pollThread() {
       std::max(MIN_UPDATE_PERIOD_MS, std::min(static_cast<size_t>(1) << shift, _maxUpdatePeriodMs));
     std::unique_lock<std::mutex> lock(_pollMutex);
     _pollCv.wait_for(lock, std::chrono::milliseconds(updatePeriodMs), [this] {
-      return _shuttingDown.load();
+      return _shuttingDown.load() || _pollPoke;
     });
+    if (_pollPoke) {
+      // A client advertised or subscribed to the graph; poll now and restart
+      // the backoff so subsequent changes are also picked up promptly.
+      _pollPoke = false;
+      updateCount = 0;
+    }
   }
 
   ROS_DEBUG("Master polling thread exiting");
+}
+
+void Ros1FoxgloveBridge::pokePoll() {
+  {
+    std::lock_guard<std::mutex> lock(_pollMutex);
+    _pollPoke = true;
+  }
+  _pollCv.notify_all();
 }
 
 void Ros1FoxgloveBridge::updateAdvertisedTopics(const std::vector<TopicAndDatatype>& topics) {
@@ -611,10 +625,15 @@ void Ros1FoxgloveBridge::onUnsubscribe(ChannelId channelId, ClientId clientId, b
 
   auto subIt = _subscriptions.find(channelId);
   if (subIt == _subscriptions.end()) {
-    ROS_ERROR(
-      "Client %u tried unsubscribing from channel %lu but no subscription exists",
-      clientId,
-      channelId
+    // Expected during channel teardown: updateAdvertisedTopics erases the
+    // subscription before channel.close() fires onUnsubscribe for each still-
+    // subscribed client. Logged at debug rather than error so a normal topic
+    // removal doesn't look like a fault.
+    ROS_DEBUG(
+      "Unsubscribe for channel %lu from client %u with no active subscription "
+      "(expected during channel removal)",
+      channelId,
+      clientId
     );
     return;
   }
@@ -746,7 +765,7 @@ void Ros1FoxgloveBridge::onClientAdvertise(
   _clientAdvertisedTopics.emplace(key, std::move(ad));
 
   // Wake the poll thread so other clients learn about the new topic promptly.
-  _pollCv.notify_all();
+  pokePoll();
 }
 
 void Ros1FoxgloveBridge::onClientUnadvertise(
@@ -811,7 +830,7 @@ void Ros1FoxgloveBridge::onConnectionGraphSubscribe(bool subscribe) {
   ROS_INFO("received connection graph %s request", subscribe ? "subscribe" : "unsubscribe");
   if (subscribe) {
     ++_graphSubscriptionCount;
-    _pollCv.notify_all();
+    pokePoll();
   } else if (_graphSubscriptionCount.fetch_sub(1) <= 0) {
     _graphSubscriptionCount.fetch_add(1);
   }
