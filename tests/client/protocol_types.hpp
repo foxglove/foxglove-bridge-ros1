@@ -11,8 +11,9 @@
 
 namespace foxglove::test {
 
-// Protocol type aliases
-using ChannelId = uint64_t;
+// Protocol type aliases. Channel IDs are u32 on the wire (and read as such
+// in from_json), even though the SDK uses u64 channel IDs internally.
+using ChannelId = uint32_t;
 using SubscriptionId = uint32_t;
 using ClientChannelId = uint32_t;
 using ServiceId = uint32_t;
