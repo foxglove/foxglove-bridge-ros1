@@ -95,8 +95,7 @@ catkin_package()
 # consumed below. To build against a locally-modified SDK instead, override
 # FETCHCONTENT_SOURCE_DIR_FOXGLOVE_SDK (cmake's standard FetchContent override)
 # to point at a `make build-cpp-dist`-produced `cpp/dist` tree — the
-# ros/Makefile's FOXGLOVE_CPP_SDK_DIR variable does this for you (see
-# ros/README.md).
+# Makefile's docker-test-local-sdk target does this for you (see README.md).
 set(FOXGLOVE_SDK_VERSION "0.25.1")
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
@@ -180,7 +179,7 @@ if(CATKIN_ENABLE_TESTING)
   find_package(websocketpp REQUIRED)
 
   # The smoke test launches a master + the bridge (smoke.test) and exercises it
-  # with the ws-protocol test client shared with the ROS 2 bridge tests.
+  # with the in-repo ws-protocol test client (tests/client).
   add_rostest_gtest(smoke_test tests/smoke.test tests/smoke_test.cpp)
   # ASIO_STANDALONE makes websocketpp dispatch to standalone asio (header-only,
   # supplied by the `asio` system package) rather than boost::asio.

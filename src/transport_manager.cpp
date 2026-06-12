@@ -164,8 +164,8 @@ TransportManager::~TransportManager() {
 }
 
 void TransportManager::wireWebSocketCallbacks(foxglove::WebSocketServerOptions& serverOptions) {
-  // Exceptions from these callbacks propagate to the SDK, mirroring the
-  // behavior of the pre-extraction bridge.
+  // Exceptions from these callbacks propagate to the SDK, which reports them
+  // to the requesting client.
   serverOptions.callbacks.onConnectionGraphSubscribe = [this]() {
     _delegate.onConnectionGraphSubscribe(true);
   };
@@ -242,8 +242,8 @@ void TransportManager::createGateway(
 
   gatewayOptions.capabilities = toGatewayCapabilities(_capabilities);
 
-  // Exceptions from gateway-side delegate callbacks are caught and logged,
-  // mirroring the behavior of the pre-extraction bridge.
+  // Exceptions from gateway-side delegate callbacks are caught and logged
+  // here; the gateway has no per-request error reporting path for them.
   gatewayOptions.callbacks.onConnectionStatusChanged =
     [this](foxglove::RemoteAccessConnectionStatus status) {
       _delegate.onGatewayConnectionStatusChanged(status);

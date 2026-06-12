@@ -7,6 +7,6 @@ source /opt/foxglove/setup.bash --extend
 # only ships with the noetic install space and already ran above. Extend it
 # manually so rospack/rosrun can find the bridge package.
 export ROS_PACKAGE_PATH=/opt/foxglove/share:${ROS_PACKAGE_PATH}
-# Line-buffer stdout: the rosconsole print backend writes via printf, which is
-# block-buffered when stdout is a pipe (e.g. `docker logs`).
+# Line-buffer stdout: rosconsole's log4cxx console appender writes to stdout,
+# which is block-buffered when it is a pipe (e.g. `docker logs`).
 exec stdbuf -oL -eL "$@"

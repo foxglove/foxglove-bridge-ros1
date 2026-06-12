@@ -9,8 +9,9 @@ int main(int argc, char** argv) {
 
   foxglove_bridge::Ros1FoxgloveBridge bridge(nh, privateNh);
 
-  // Subscription and service callbacks come in on the SDK's own threads; the
-  // ROS spinner only services subscription callbacks and timers.
+  // Foxglove client requests (subscribe, publish, service calls, ...) arrive
+  // on the SDK's own threads; the ROS spinner only services ROS message
+  // callbacks and timers.
   ros::AsyncSpinner spinner(4);
   spinner.start();
   ros::waitForShutdown();

@@ -16,8 +16,7 @@ enum class BridgeLogLevel {
   Fatal,
 };
 
-/// Sink for core log output. Frontends route this to their ROS logger
-/// (RCLCPP_* / ROS_*).
+/// Sink for bridge log output, routed to ROS_* logging by the frontend.
 using LogFn = std::function<void(BridgeLogLevel, const std::string& message)>;
 
 /// printf-style convenience wrapper around a LogFn.

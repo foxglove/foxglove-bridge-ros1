@@ -1,6 +1,6 @@
 // Smoke test for the ROS 1 foxglove_bridge, run under rostest (see smoke.test,
 // which launches the master, the bridge with use_sim_time, and this gtest).
-// Uses the ws-protocol test client shared with the ROS 2 bridge tests.
+// Uses the in-repo ws-protocol test client (tests/client).
 
 #include <chrono>
 #include <future>

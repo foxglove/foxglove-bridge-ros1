@@ -80,8 +80,7 @@ public:
 };
 
 /// Implemented by the ROS frontend to back parameter get/set/subscribe
-/// requests (e.g. via rclcpp parameter clients on ROS 2, or the master
-/// parameter server API on ROS 1). All calls are made from the
+/// requests via the master parameter server API. All calls are made from the
 /// TransportManager's parameter worker thread.
 class ParameterBackend {
 public:
