@@ -13,6 +13,7 @@
 #include <xmlrpcpp/XmlRpcValue.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <unordered_set>
 
@@ -37,6 +38,28 @@ std::vector<std::regex> parseRegexPatterns(const std::vector<std::string>& strin
     }
   }
   return patterns;
+}
+
+// Decode percent-escapes (%XX) in a URI. resource_retriever / libcurl decode
+// these when resolving a package:// URI to a file path, so the asset
+// traversal check below must run against the decoded form — otherwise
+// `%2e%2e` slips past a literal ".." check and resolves to "..". A lone '%'
+// or a malformed escape is left as-is (this is only used for the safety
+// check, not for the actual fetch).
+std::string percentDecode(const std::string& in) {
+  std::string out;
+  out.reserve(in.size());
+  for (size_t i = 0; i < in.size(); ++i) {
+    if (in[i] == '%' && i + 2 < in.size() && std::isxdigit(static_cast<unsigned char>(in[i + 1])) &&
+        std::isxdigit(static_cast<unsigned char>(in[i + 2]))) {
+      const std::string hex = in.substr(i + 1, 2);
+      out.push_back(static_cast<char>(std::stoi(hex, nullptr, 16)));
+      i += 2;
+    } else {
+      out.push_back(in[i]);
+    }
+  }
+  return out;
 }
 
 std::unordered_set<std::string> rpcValueToStringSet(const XmlRpc::XmlRpcValue& v) {
@@ -804,7 +827,12 @@ void Ros1FoxgloveBridge::fetchAsset(
     // not be accessible over the WebSocket connection. Example:
     // `package://<pkg_name>/../../../secret.txt`. This is an extra security measure and should
     // not be necessary if the allowlist is strict enough.
-    if (uri.find("..") != std::string::npos || !isWhitelisted(uri, _assetUriAllowlistPatterns)) {
+    //
+    // The ".." check runs against the percent-decoded URI: resource_retriever
+    // decodes escapes, so a literal-only check would let `%2e%2e` through and
+    // resolve to "..".
+    if (percentDecode(uri).find("..") != std::string::npos ||
+        !isWhitelisted(uri, _assetUriAllowlistPatterns)) {
       throw std::runtime_error("Asset URI not allowed: " + uri);
     }
 
