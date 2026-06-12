@@ -1,5 +1,7 @@
+#include <atomic>
 #include <chrono>
 #include <future>
+#include <memory>
 
 #include <ros/connection.h>
 #include <ros/connection_manager.h>
@@ -38,17 +40,28 @@ std::string retrieveServiceType(const std::string& serviceName, std::chrono::mil
     throw std::runtime_error("Failed to connect to service server of service " + serviceName);
   }
 
-  std::promise<std::string> promise;
-  auto future = promise.get_future();
+  // The callback runs on roscpp's poll thread and can race the timeout path
+  // below: Connection::drop() does not synchronize with a callback that is
+  // already executing. The callback therefore shares ownership of the promise
+  // (so a late invocation writes into live memory) and a fulfilled flag
+  // guards against ever setting it twice.
+  struct SharedState {
+    std::promise<std::string> promise;
+    std::atomic<bool> fulfilled{false};
+  };
+  auto state = std::make_shared<SharedState>();
+  auto future = state->promise.get_future();
 
   connection->setHeaderReceivedCallback(
-    [&promise](const ros::ConnectionPtr& conn, const ros::Header& header) {
-      std::string serviceType;
-      if (header.getValue("type", serviceType)) {
-        promise.set_value(serviceType);
-      } else {
-        promise.set_exception(std::make_exception_ptr(
-          std::runtime_error("Key 'type' not found in service connection header")));
+    [state](const ros::ConnectionPtr& conn, const ros::Header& header) {
+      if (!state->fulfilled.exchange(true)) {
+        std::string serviceType;
+        if (header.getValue("type", serviceType)) {
+          state->promise.set_value(serviceType);
+        } else {
+          state->promise.set_exception(std::make_exception_ptr(
+            std::runtime_error("Key 'type' not found in service connection header")));
+        }
       }
       // Close connection since we don't need it any more.
       conn->drop(ros::Connection::DropReason::Destructing);
@@ -64,8 +77,9 @@ std::string retrieveServiceType(const std::string& serviceName, std::chrono::mil
   connection->writeHeader(header, [](const ros::ConnectionPtr&) {});
 
   if (future.wait_for(timeout) != std::future_status::ready) {
-    // Drop the connection here to prevent that the header-received callback is called after the
-    // promise has already been destroyed.
+    // Stop the probe. A callback already in flight may still complete
+    // concurrently; that is safe, since it owns the shared state and the
+    // abandoned promise is simply never read.
     connection->drop(ros::Connection::DropReason::Destructing);
     throw std::runtime_error("Timed out when retrieving service type");
   }
