@@ -621,6 +621,8 @@ void Ros1FoxgloveBridge::rosMessageHandler(
   const auto timestamp = ros::Time::now().toNSec();
   const auto msg = msgEvent.getConstMessage();
 
+  // One serialized copy is unavoidable: ShapeShifter only exposes its bytes
+  // through write().
   std::vector<uint8_t> buffer(msg->size());
   ros::serialization::OStream stream(buffer.data(), static_cast<uint32_t>(buffer.size()));
   msg->write(stream);
@@ -632,7 +634,9 @@ void Ros1FoxgloveBridge::rosMessageHandler(
   }
 
   // Cache the last message per latched publisher for replay to late
-  // subscribers.
+  // subscribers. The buffer is moved into the cache (not copied) and logged
+  // from there.
+  const std::vector<uint8_t>* logData = &buffer;
   const auto connectionHeader = msgEvent.getConnectionHeaderPtr();
   if (connectionHeader) {
     const auto latchingIt = connectionHeader->find("latching");
@@ -642,7 +646,10 @@ void Ros1FoxgloveBridge::rosMessageHandler(
         const auto calleridIt = connectionHeader->find("callerid");
         const std::string callerid =
           calleridIt != connectionHeader->end() ? calleridIt->second : std::string();
-        subIt->second.latchedMessages[callerid] = CachedLatchedMessage{buffer, timestamp};
+        auto& cached = subIt->second.latchedMessages[callerid];
+        cached.data = std::move(buffer);
+        cached.timestamp = timestamp;
+        logData = &cached.data;
         {
           std::lock_guard<std::mutex> latchedLock(_latchedChannelsMutex);
           _latchedChannels.insert(channelId);
@@ -652,7 +659,7 @@ void Ros1FoxgloveBridge::rosMessageHandler(
   }
 
   channelIt->second.log(
-    reinterpret_cast<const std::byte*>(buffer.data()), buffer.size(), timestamp
+    reinterpret_cast<const std::byte*>(logData->data()), logData->size(), timestamp
   );
 }
 
