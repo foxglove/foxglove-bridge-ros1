@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>foxglove_bridge_ros1</name>
+  <name>foxglove_bridge</name>
   <version>3.4.1</version>
   <description>
     ROS 1 Foxglove bridge: connects ROS 1 topics, services, and parameters
@@ -10,24 +10,21 @@
   </description>
   <maintainer email="ros-tooling@foxglove.dev">Foxglove</maintainer>
   <license>MIT</license>
-  <url type="website">https://github.com/foxglove/foxglove-sdk</url>
+  <url type="website">https://github.com/foxglove/foxglove_bridge_ros1</url>
 
-  <!-- This package is ROS 1 only. The conditions keep rosdep happy when it
-       scans the source tree in a ROS 2 environment (a COLCON_IGNORE file
-       excludes it from colcon builds there). -->
-  <buildtool_depend condition="$ROS_VERSION == 1">catkin</buildtool_depend>
+  <buildtool_depend>catkin</buildtool_depend>
 
-  <depend condition="$ROS_VERSION == 1">resource_retriever</depend>
-  <depend condition="$ROS_VERSION == 1">roscpp</depend>
-  <depend condition="$ROS_VERSION == 1">rosgraph_msgs</depend>
-  <depend condition="$ROS_VERSION == 1">topic_tools</depend>
-  <depend condition="$ROS_VERSION == 1">ros_babel_fish</depend>
+  <depend>resource_retriever</depend>
+  <depend>roscpp</depend>
+  <depend>rosgraph_msgs</depend>
+  <depend>topic_tools</depend>
+  <depend>ros_babel_fish</depend>
 
-  <test_depend condition="$ROS_VERSION == 1">rostest</test_depend>
-  <test_depend condition="$ROS_VERSION == 1">std_msgs</test_depend>
-  <test_depend condition="$ROS_VERSION == 1">nlohmann-json-dev</test_depend>
-  <test_depend condition="$ROS_VERSION == 1">websocketpp</test_depend>
-  <test_depend condition="$ROS_VERSION == 1">asio</test_depend>
+  <test_depend>rostest</test_depend>
+  <test_depend>std_msgs</test_depend>
+  <test_depend>nlohmann-json-dev</test_depend>
+  <test_depend>websocketpp</test_depend>
+  <test_depend>asio</test_depend>
 
   <export>
     <build_type>catkin</build_type>

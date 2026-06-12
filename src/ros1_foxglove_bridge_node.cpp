@@ -1,6 +1,6 @@
 #include <ros/ros.h>
 
-#include <foxglove_bridge_ros1/ros1_foxglove_bridge.hpp>
+#include <foxglove_bridge/ros1_foxglove_bridge.hpp>
 
 int main(int argc, char** argv) {
   ros::init(argc, argv, "foxglove_bridge");

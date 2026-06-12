@@ -9,7 +9,7 @@ if(POLICY CMP0024)
   set(CMAKE_POLICY_DEFAULT_CMP0024 NEW)
 endif()
 
-project(foxglove_bridge_ros1 LANGUAGES CXX VERSION 3.4.1)
+project(foxglove_bridge LANGUAGES CXX VERSION 3.4.1)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -136,28 +136,28 @@ set_target_properties(foxglove_cpp_shared PROPERTIES
   BUILD_WITH_INSTALL_RPATH TRUE
 )
 
-add_library(foxglove_bridge_ros1 SHARED
+add_library(foxglove_bridge_lib SHARED
   src/capabilities.cpp
   src/param_interface.cpp
   src/ros1_foxglove_bridge.cpp
   src/service_utils.cpp
   src/transport_manager.cpp
 )
-target_include_directories(foxglove_bridge_ros1
+target_include_directories(foxglove_bridge_lib
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
-target_include_directories(foxglove_bridge_ros1 SYSTEM PUBLIC ${catkin_INCLUDE_DIRS})
-target_link_libraries(foxglove_bridge_ros1
+target_include_directories(foxglove_bridge_lib SYSTEM PUBLIC ${catkin_INCLUDE_DIRS})
+target_link_libraries(foxglove_bridge_lib
   PUBLIC foxglove_cpp_shared ${catkin_LIBRARIES}
   PRIVATE Threads::Threads
 )
 if (FOXGLOVE_BRIDGE_REMOTE_ACCESS)
-  target_compile_definitions(foxglove_bridge_ros1 PUBLIC FOXGLOVE_REMOTE_ACCESS)
+  target_compile_definitions(foxglove_bridge_lib PUBLIC FOXGLOVE_REMOTE_ACCESS)
 endif()
-enable_strict_compiler_warnings(foxglove_bridge_ros1)
-set_target_properties(foxglove_bridge_ros1 PROPERTIES
+enable_strict_compiler_warnings(foxglove_bridge_lib)
+set_target_properties(foxglove_bridge_lib PROPERTIES
   INSTALL_RPATH "$ORIGIN"
   BUILD_WITH_INSTALL_RPATH TRUE
 )
@@ -166,7 +166,7 @@ add_executable(foxglove_bridge
   src/ros1_foxglove_bridge_node.cpp
 )
 target_link_libraries(foxglove_bridge
-  foxglove_bridge_ros1
+  foxglove_bridge_lib
 )
 enable_strict_compiler_warnings(foxglove_bridge)
 set_target_properties(foxglove_bridge PROPERTIES
@@ -187,14 +187,14 @@ if(CATKIN_ENABLE_TESTING)
   target_compile_definitions(smoke_test PRIVATE ASIO_STANDALONE)
   target_include_directories(smoke_test PRIVATE tests)
   target_link_libraries(smoke_test
-    foxglove_bridge_ros1
+    foxglove_bridge_lib
     nlohmann_json::nlohmann_json
     websocketpp::websocketpp
   )
   enable_strict_compiler_warnings(smoke_test)
 endif()
 
-install(TARGETS foxglove_bridge_ros1 foxglove_cpp_shared
+install(TARGETS foxglove_bridge_lib foxglove_cpp_shared
   ARCHIVE DESTINATION ${CATKIN_GLOBAL_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_GLOBAL_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}

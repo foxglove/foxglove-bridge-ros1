@@ -5,8 +5,8 @@
 #include <stdexcept>
 #include <type_traits>
 
-#include <foxglove_bridge_ros1/capabilities.hpp>
-#include <foxglove_bridge_ros1/transport_manager.hpp>
+#include <foxglove_bridge/capabilities.hpp>
+#include <foxglove_bridge/transport_manager.hpp>
 
 namespace foxglove_bridge {
 

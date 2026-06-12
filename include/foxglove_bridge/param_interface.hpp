@@ -10,7 +10,7 @@
 #include <ros/ros.h>
 #include <ros/xmlrpc_manager.h>
 
-#include <foxglove_bridge_ros1/transport_manager.hpp>
+#include <foxglove_bridge/transport_manager.hpp>
 
 namespace foxglove_bridge {
 

@@ -3,9 +3,9 @@
        publishes /clock. -->
   <param name="/use_sim_time" value="true" />
 
-  <node pkg="foxglove_bridge_ros1" type="foxglove_bridge" name="foxglove_bridge" output="screen">
+  <node pkg="foxglove_bridge" type="foxglove_bridge" name="foxglove_bridge" output="screen">
     <param name="port" value="9876" />
   </node>
 
-  <test test-name="smoke_test" pkg="foxglove_bridge_ros1" type="smoke_test" time-limit="300.0" />
+  <test test-name="smoke_test" pkg="foxglove_bridge" type="smoke_test" time-limit="300.0" />
 </launch>

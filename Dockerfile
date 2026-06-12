@@ -3,7 +3,7 @@
 # Noetic is only released for focal (glibc 2.31), but the SDK's remote access
 # support requires glibc >= 2.35, so this image builds a minimal Noetic stack
 # (ros_comm + topic_tools + ros_babel_fish) from source on jammy and then
-# builds foxglove_bridge_ros1 against it.
+# builds foxglove_bridge against it.
 #
 # The Foxglove SDK is downloaded by CMake as a pinned, SHA-verified release zip
 # during the build (see the FetchContent block in the package's CMakeLists.txt),
@@ -17,7 +17,7 @@
 #     -e ROS_MASTER_URI=http://localhost:11311 \
 #     -e FOXGLOVE_DEVICE_TOKEN=... \
 #     foxglove-bridge-ros1 \
-#     rosrun foxglove_bridge_ros1 foxglove_bridge _remote_access:=true
+#     rosrun foxglove_bridge foxglove_bridge _remote_access:=true
 
 # ---------------------------------------------------------------------------
 # Stage 1: Noetic ros_comm (+ topic_tools, ros_babel_fish) from source.
@@ -96,7 +96,7 @@ RUN cd /ros_ws \
         -DCMAKE_BUILD_TYPE=Release
 
 # ---------------------------------------------------------------------------
-# Stage 2: foxglove_bridge_ros1.
+# Stage 2: foxglove_bridge.
 # ---------------------------------------------------------------------------
 FROM noetic-base AS bridge
 
@@ -108,16 +108,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # The repo root is the package; .dockerignore keeps .git out of the copy.
-COPY . /bridge_ws/src/foxglove_bridge_ros1
+COPY . /bridge_ws/src/foxglove_bridge
 
 ARG FOXGLOVE_BRIDGE_REMOTE_ACCESS=ON
 
-# The repo ships a COLCON_IGNORE in foxglove_bridge_ros1 so ROS 2 colcon
-# builds skip the catkin-only package — but recent catkin_pkg (PyPI) honors
-# COLCON_IGNORE as well, which would hide the package from this build too.
-# Remove the marker in the image's private copy of the workspace.
-RUN rm -f /bridge_ws/src/foxglove_bridge_ros1/COLCON_IGNORE \
-    && . /opt/ros/noetic/setup.sh \
+RUN . /opt/ros/noetic/setup.sh \
     && cd /bridge_ws \
     && catkin_make_isolated \
         --install --install-space /opt/foxglove \
@@ -128,4 +123,4 @@ RUN rm -f /bridge_ws/src/foxglove_bridge_ros1/COLCON_IGNORE \
 
 COPY entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["rosrun", "foxglove_bridge_ros1", "foxglove_bridge"]
+CMD ["rosrun", "foxglove_bridge", "foxglove_bridge"]

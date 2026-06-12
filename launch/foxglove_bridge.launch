@@ -5,7 +5,7 @@
   <arg name="device_token" default="" />
   <arg name="foxglove_api_url" default="" />
 
-  <node pkg="foxglove_bridge_ros1" type="foxglove_bridge" name="foxglove_bridge" output="screen">
+  <node pkg="foxglove_bridge" type="foxglove_bridge" name="foxglove_bridge" output="screen">
     <param name="port" value="$(arg port)" />
     <param name="address" value="$(arg address)" />
     <param name="remote_access" value="$(arg remote_access)" />

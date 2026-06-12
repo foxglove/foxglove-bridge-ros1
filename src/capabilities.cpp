@@ -1,6 +1,6 @@
 #include <unordered_map>
 
-#include <foxglove_bridge_ros1/capabilities.hpp>
+#include <foxglove_bridge/capabilities.hpp>
 
 namespace foxglove_bridge {
 
