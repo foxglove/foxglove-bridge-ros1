@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <future>
 #include <optional>
@@ -236,7 +237,11 @@ public:
       return;  // Already disconnected
     }
 
-    _endpoint.close(_con, websocketpp::close::status::going_away, "");
+    // Non-throwing overload: closing a connection that never reached the open
+    // state (or that the peer already closed) reports an error, and this runs
+    // from the destructor, where a thrown exception would terminate.
+    websocketpp::lib::error_code ec;
+    _endpoint.close(_con, websocketpp::close::status::going_away, "", ec);
     _con.reset();
   }
 
@@ -387,13 +392,21 @@ public:
 
     setBinaryMessageHandler([promise = std::move(promise), fulfilled, subscriptionId](
                               const uint8_t* data, size_t dataLength) {
+      // Opcode, subscription ID, receive timestamp.
+      constexpr size_t offset = 1 + 4 + 8;
+      // Other server-pushed binary frames (e.g. TIME) land in this handler
+      // too; without the opcode and length checks, a 9-byte TIME frame would
+      // underflow dataLength - offset below.
+      if (dataLength < offset ||
+          static_cast<ServerBinaryOpcode>(data[0]) != ServerBinaryOpcode::MESSAGE_DATA) {
+        return;
+      }
       if (ReadUint32LE(data + 1) != subscriptionId) {
         return;
       }
       if (fulfilled->exchange(true)) {
         return;
       }
-      const size_t offset = 1 + 4 + 8;
       std::vector<uint8_t> dataCopy(dataLength - offset);
       std::memcpy(dataCopy.data(), data + offset, dataLength - offset);
       promise->set_value(std::move(dataCopy));
@@ -406,13 +419,18 @@ public:
     const std::string& requestId = std::string()) {
     auto promise = std::make_shared<std::promise<std::vector<foxglove::Parameter>>>();
     auto future = promise->get_future();
+    auto fulfilled = std::make_shared<std::atomic<bool>>(false);
 
-    setTextMessageHandler([promise = std::move(promise), requestId](const std::string& payload) {
+    setTextMessageHandler([promise = std::move(promise), fulfilled,
+                           requestId](const std::string& payload) {
       const auto msg = nlohmann::json::parse(payload);
       const auto& op = msg["op"].get<std::string>();
       const auto id = msg.value("id", "");
 
       if (op == "parameterValues" && (requestId.empty() || requestId == id)) {
+        if (fulfilled->exchange(true)) {
+          return;  // A second matching message must not double-set the promise.
+        }
         std::vector<foxglove::Parameter> parameters;
         from_json(msg["parameters"], parameters);
         promise->set_value(std::move(parameters));
@@ -425,11 +443,15 @@ public:
   std::future<ServiceResponse> waitForServiceResponse() {
     auto promise = std::make_shared<std::promise<ServiceResponse>>();
     auto future = promise->get_future();
+    auto fulfilled = std::make_shared<std::atomic<bool>>(false);
 
-    setBinaryMessageHandler([promise = std::move(promise)](const uint8_t* data,
-                                                           size_t dataLength) mutable {
+    setBinaryMessageHandler([promise = std::move(promise), fulfilled](
+                              const uint8_t* data, size_t dataLength) mutable {
       if (static_cast<ServerBinaryOpcode>(data[0]) != ServerBinaryOpcode::SERVICE_CALL_RESPONSE) {
         return;
+      }
+      if (fulfilled->exchange(true)) {
+        return;  // A second response must not double-set the promise.
       }
 
       // Deserialize response
@@ -455,9 +477,10 @@ public:
   std::future<Service> waitForService(const std::string& serviceName) {
     auto promise = std::make_shared<std::promise<Service>>();
     auto future = promise->get_future();
+    auto fulfilled = std::make_shared<std::atomic<bool>>(false);
 
     setTextMessageHandler(
-      [promise = std::move(promise), serviceName](const std::string& payload) mutable {
+      [promise = std::move(promise), fulfilled, serviceName](const std::string& payload) mutable {
         const auto msg = nlohmann::json::parse(payload);
         const auto& op = msg["op"].get<std::string>();
 
@@ -465,7 +488,9 @@ public:
           const auto services = msg["services"].get<std::vector<Service>>();
           for (const auto& service : services) {
             if (service.name == serviceName) {
-              promise->set_value(service);
+              if (!fulfilled->exchange(true)) {
+                promise->set_value(service);
+              }
               break;
             }
           }
@@ -478,9 +503,10 @@ public:
   std::future<Channel> waitForChannel(const std::string& topicName) {
     auto promise = std::make_shared<std::promise<Channel>>();
     auto future = promise->get_future();
+    auto fulfilled = std::make_shared<std::atomic<bool>>(false);
 
     setTextMessageHandler(
-      [promise = std::move(promise), topicName](const std::string& payload) mutable {
+      [promise = std::move(promise), fulfilled, topicName](const std::string& payload) mutable {
         const auto msg = nlohmann::json::parse(payload);
         const auto& op = msg["op"].get<std::string>();
 
@@ -488,7 +514,9 @@ public:
           const auto channels = msg["channels"].get<std::vector<Channel>>();
           for (const auto& channel : channels) {
             if (channel.topic == topicName) {
-              promise->set_value(channel);
+              if (!fulfilled->exchange(true)) {
+                promise->set_value(channel);
+              }
               break;
             }
           }
@@ -500,11 +528,15 @@ public:
   std::future<FetchAssetResponse> waitForFetchAssetResponse() {
     auto promise = std::make_shared<std::promise<FetchAssetResponse>>();
     auto future = promise->get_future();
+    auto fulfilled = std::make_shared<std::atomic<bool>>(false);
 
     setBinaryMessageHandler(
-      [promise = std::move(promise)](const uint8_t* data, size_t dataLength) mutable {
+      [promise = std::move(promise), fulfilled](const uint8_t* data, size_t dataLength) mutable {
         if (static_cast<ServerBinaryOpcode>(data[0]) != ServerBinaryOpcode::FETCH_ASSET_RESPONSE) {
           return;
+        }
+        if (fulfilled->exchange(true)) {
+          return;  // A second response must not double-set the promise.
         }
 
         FetchAssetResponse response;
