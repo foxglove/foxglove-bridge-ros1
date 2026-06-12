@@ -25,11 +25,22 @@ make docker-build
 ```
 
 The Foxglove SDK is downloaded by CMake during the build as a pinned,
-SHA-verified release zip (see the FetchContent block in CMakeLists.txt). To
-build against a locally-modified SDK instead, run `make build-cpp-dist` in a
-foxglove-sdk checkout and point the build at the resulting `cpp/dist` tree by
-adding a `COPY` of it and a
-`-DFETCHCONTENT_SOURCE_DIR_FOXGLOVE_SDK=<path>` cmake arg in the Dockerfile.
+SHA-verified release zip (see the FetchContent block in CMakeLists.txt).
+
+### Testing against a locally-built SDK
+
+To build and test against a locally-modified SDK instead of the pinned
+release, run `make build-cpp-dist` in a foxglove-sdk checkout and point
+`FOXGLOVE_CPP_SDK_DIR` at the resulting `cpp/dist` tree:
+
+```sh
+make docker-test-local-sdk FOXGLOVE_CPP_SDK_DIR=/path/to/foxglove-sdk/cpp/dist
+```
+
+This reuses the prebuilt image and mounts the SDK dist and the current
+working tree into it, rebuilding just the bridge inside the container — so
+the slow Noetic-from-source image stage is not repeated, and local edits to
+both the SDK and the bridge are picked up without rebuilding the image.
 
 Run against an external rosmaster (e.g. a robot running a stock focal
 Noetic — the bridge interoperates over TCPROS; the robot side needs no
