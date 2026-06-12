@@ -126,7 +126,10 @@ private:
   ros::NodeHandle _privateNh;
 
   // Created before (and therefore destroyed after) the TransportManager,
-  // whose parameter worker calls into it.
+  // whose parameter worker calls into it. The reverse arrow exists too: the
+  // parameter interface's XML-RPC thread pushes updates into the
+  // TransportManager via the update callback, so the destructor shuts the
+  // interface down before stopping the transports.
   std::unique_ptr<Ros1ParameterInterface> _paramInterface;
   std::unique_ptr<TransportManager> _transports;
 

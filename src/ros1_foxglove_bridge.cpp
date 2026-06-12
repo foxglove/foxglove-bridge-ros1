@@ -171,6 +171,11 @@ Ros1FoxgloveBridge::~Ros1FoxgloveBridge() {
   if (_pollThread) {
     _pollThread->join();
   }
+  // Stop the parameter-update push source before the transports: its XML-RPC
+  // thread invokes the update callback, which publishes into _transports.
+  if (_paramInterface) {
+    _paramInterface->shutdown();
+  }
   _transports->stop();
   ROS_INFO("Shutdown complete");
 }

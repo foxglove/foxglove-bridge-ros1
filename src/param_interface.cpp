@@ -107,16 +107,26 @@ Ros1ParameterInterface::Ros1ParameterInterface(ros::NodeHandle nh,
 }
 
 Ros1ParameterInterface::~Ros1ParameterInterface() {
+  shutdown();
+}
+
+void Ros1ParameterInterface::shutdown() {
   // Politely drop our registrations; the master would otherwise only clean
   // them up after a failed paramUpdate notification.
   std::unordered_set<std::string> subscribed;
   {
     std::lock_guard<std::mutex> lock(_mutex);
+    if (_shutdown) {
+      return;
+    }
+    _shutdown = true;
     subscribed.swap(_subscribedParams);
   }
   for (const auto& paramName : subscribed) {
     executeParamSubscription("unsubscribeParam", paramName);
   }
+  // Joins the XML-RPC server thread, so no parameterUpdates callback survives
+  // this call.
   _xmlrpcServer.shutdown();
 }
 
