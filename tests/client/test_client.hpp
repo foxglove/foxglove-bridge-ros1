@@ -200,7 +200,8 @@ public:
 
   void connect(
     const std::string& uri, std::function<void(websocketpp::connection_hdl)> onOpenHandler,
-    std::function<void(websocketpp::connection_hdl)> onCloseHandler = nullptr
+    std::function<void(websocketpp::connection_hdl)> onCloseHandler = nullptr,
+    std::function<void(websocketpp::connection_hdl)> onFailHandler = nullptr
   ) {
     std::unique_lock<std::shared_mutex> lock(_mutex);
 
@@ -217,6 +218,9 @@ public:
     if (onCloseHandler) {
       _con->set_close_handler(onCloseHandler);
     }
+    if (onFailHandler) {
+      _con->set_fail_handler(onFailHandler);
+    }
 
     _con->add_subprotocol(SUPPORTED_SUBPROTOCOL);
     _endpoint.connect(_con);
@@ -225,10 +229,26 @@ public:
   std::future<void> connect(const std::string& uri) {
     auto promise = std::make_shared<std::promise<void>>();
     auto future = promise->get_future();
+    auto settled = std::make_shared<std::atomic<bool>>(false);
 
-    connect(uri, [p = std::move(promise)](websocketpp::connection_hdl) mutable {
-      p->set_value();
-    });
+    // A refused or rejected connection settles the future with an exception
+    // immediately instead of leaving the caller to time out.
+    connect(
+      uri,
+      [promise, settled](websocketpp::connection_hdl) {
+        if (!settled->exchange(true)) {
+          promise->set_value();
+        }
+      },
+      nullptr,
+      [promise, settled](websocketpp::connection_hdl) {
+        if (!settled->exchange(true)) {
+          promise->set_exception(
+            std::make_exception_ptr(std::runtime_error("WebSocket connection failed"))
+          );
+        }
+      }
+    );
 
     return future;
   }
@@ -251,18 +271,29 @@ public:
     (void)hdl;
     const OpCode op = msg->get_opcode();
 
+    // Copy the handler out under the lock and invoke it unlocked: a handler
+    // that calls back into the client (send*, set*MessageHandler) would
+    // otherwise deadlock on the shared mutex.
     switch (op) {
       case OpCode::TEXT: {
-        std::shared_lock<std::shared_mutex> lock(_mutex);
-        if (_textMessageHandler) {
-          _textMessageHandler(msg->get_payload());
+        TextMessageHandler handler;
+        {
+          std::shared_lock<std::shared_mutex> lock(_mutex);
+          handler = _textMessageHandler;
+        }
+        if (handler) {
+          handler(msg->get_payload());
         }
       } break;
       case OpCode::BINARY: {
-        std::shared_lock<std::shared_mutex> lock(_mutex);
-        const auto& payload = msg->get_payload();
-        if (_binaryMessageHandler) {
-          _binaryMessageHandler(reinterpret_cast<const uint8_t*>(payload.data()), payload.size());
+        BinaryMessageHandler handler;
+        {
+          std::shared_lock<std::shared_mutex> lock(_mutex);
+          handler = _binaryMessageHandler;
+        }
+        if (handler) {
+          const auto& payload = msg->get_payload();
+          handler(reinterpret_cast<const uint8_t*>(payload.data()), payload.size());
         }
       } break;
       default:
@@ -384,11 +415,17 @@ public:
 
   void sendText(const std::string& payload) {
     std::shared_lock<std::shared_mutex> lock(_mutex);
+    if (!_con) {
+      throw std::runtime_error("sendText called while disconnected");
+    }
     _endpoint.send(_con, payload, OpCode::TEXT);
   }
 
   void sendBinary(const uint8_t* data, size_t dataLength) {
     std::shared_lock<std::shared_mutex> lock(_mutex);
+    if (!_con) {
+      throw std::runtime_error("sendBinary called while disconnected");
+    }
     _endpoint.send(_con, data, dataLength, OpCode::BINARY);
   }
 
@@ -458,7 +495,16 @@ public:
 
     setBinaryMessageHandler([promise = std::move(promise),
                              fulfilled](const uint8_t* data, size_t dataLength) mutable {
-      if (static_cast<ServerBinaryOpcode>(data[0]) != ServerBinaryOpcode::SERVICE_CALL_RESPONSE) {
+      // Opcode, service ID, call ID, encoding length.
+      constexpr size_t kHeaderSize = 1 + 4 + 4 + 4;
+      if (dataLength < kHeaderSize ||
+          static_cast<ServerBinaryOpcode>(data[0]) != ServerBinaryOpcode::SERVICE_CALL_RESPONSE) {
+        return;
+      }
+      // Validate the wire length before consuming the fulfilled slot, so a
+      // malformed frame is dropped instead of producing an out-of-bounds
+      // read (and so it doesn't burn the waiter).
+      if (static_cast<size_t>(ReadUint32LE(data + 9)) > dataLength - kHeaderSize) {
         return;
       }
       if (fulfilled->exchange(true)) {
@@ -545,7 +591,16 @@ public:
 
     setBinaryMessageHandler([promise = std::move(promise),
                              fulfilled](const uint8_t* data, size_t dataLength) mutable {
-      if (static_cast<ServerBinaryOpcode>(data[0]) != ServerBinaryOpcode::FETCH_ASSET_RESPONSE) {
+      // Opcode, request ID, status, error-message length.
+      constexpr size_t kHeaderSize = 1 + 4 + 1 + 4;
+      if (dataLength < kHeaderSize ||
+          static_cast<ServerBinaryOpcode>(data[0]) != ServerBinaryOpcode::FETCH_ASSET_RESPONSE) {
+        return;
+      }
+      // Validate the wire length before consuming the fulfilled slot, so a
+      // malformed frame is dropped instead of producing an out-of-bounds
+      // read (and so it doesn't burn the waiter).
+      if (static_cast<size_t>(ReadUint32LE(data + 6)) > dataLength - kHeaderSize) {
         return;
       }
       if (fulfilled->exchange(true)) {
