@@ -9,6 +9,7 @@
 #include <ros/serialization.h>
 #include <ros/service.h>
 #include <rosgraph_msgs/Clock.h>
+#include <xmlrpcpp/XmlRpcException.h>
 #include <xmlrpcpp/XmlRpcValue.h>
 
 #include <algorithm>
@@ -268,6 +269,11 @@ void Ros1FoxgloveBridge::pollThread() {
       if (_graphSubscriptionCount > 0) {
         _transports->publishConnectionGraph(connectionGraph);
       }
+    } catch (const XmlRpc::XmlRpcException& ex) {
+      // XmlRpcValue accessors throw this on a malformed/type-mismatched master
+      // reply; it does NOT derive from std::exception, so it needs its own
+      // catch or it would escape the poll thread and terminate the process.
+      ROS_ERROR("XML-RPC exception thrown in pollThread: %s", ex.getMessage().c_str());
     } catch (const std::exception& ex) {
       ROS_ERROR("Exception thrown in pollThread: %s", ex.what());
     }
@@ -275,10 +281,13 @@ void Ros1FoxgloveBridge::pollThread() {
     sweepExpiredServiceCalls();
 
     // Exponential backoff: 100ms -> 200ms -> 400ms ... up to max_update_ms.
+    // Cap the shift exponent: 1 << updateCount is undefined once updateCount
+    // reaches the width of size_t, and would otherwise (after ~64 polls)
+    // collapse the period back to the floor.
     ++updateCount;
-    const auto updatePeriodMs = std::max(
-      MIN_UPDATE_PERIOD_MS, std::min(static_cast<size_t>(1) << updateCount, _maxUpdatePeriodMs)
-    );
+    const size_t shift = std::min<size_t>(updateCount, 32);
+    const auto updatePeriodMs =
+      std::max(MIN_UPDATE_PERIOD_MS, std::min(static_cast<size_t>(1) << shift, _maxUpdatePeriodMs));
     std::unique_lock<std::mutex> lock(_pollMutex);
     _pollCv.wait_for(lock, std::chrono::milliseconds(updatePeriodMs), [this] {
       return _shuttingDown.load();
