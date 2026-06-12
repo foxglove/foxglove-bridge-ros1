@@ -19,7 +19,9 @@ make docker-build
 ```
 
 The Foxglove SDK is downloaded by CMake during the build as a pinned,
-SHA-verified release zip (see the FetchContent block in CMakeLists.txt).
+SHA-verified release zip (see the FetchContent block in CMakeLists.txt). The
+Noetic sources are pinned too (noetic.rosinstall, one released tarball per
+package), so image builds are reproducible.
 
 ## Running
 
