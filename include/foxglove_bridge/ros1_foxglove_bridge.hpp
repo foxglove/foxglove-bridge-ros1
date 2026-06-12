@@ -68,8 +68,9 @@ private:
   };
   struct ClientChannelKeyHash {
     std::size_t operator()(const ClientChannelKey& key) const {
-      return std::hash<ChannelId>()(key.channelId) ^ std::hash<ClientId>()(key.clientId) ^
-             std::hash<bool>()(key.isGateway);
+      std::size_t seed = std::hash<ChannelId>()(key.channelId);
+      seed = hashCombine(seed, std::hash<ClientId>()(key.clientId));
+      return hashCombine(seed, std::hash<bool>()(key.isGateway));
     }
   };
 

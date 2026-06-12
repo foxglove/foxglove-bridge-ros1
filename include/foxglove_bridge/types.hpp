@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -17,10 +18,16 @@ using ChannelAndClientId = std::pair<ChannelId, ClientId>;
 
 using MapOfSets = std::unordered_map<std::string, std::unordered_set<std::string>>;
 
+/// Mix a hash value into a seed (the boost::hash_combine construction). A
+/// plain XOR collides on symmetric pairs and clustered keys.
+inline std::size_t hashCombine(std::size_t seed, std::size_t value) {
+  return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
+}
+
 struct PairHash {
   template<class T1, class T2>
   std::size_t operator()(const std::pair<T1, T2>& pair) const {
-    return std::hash<T1>()(pair.first) ^ std::hash<T2>()(pair.second);
+    return hashCombine(std::hash<T1>()(pair.first), std::hash<T2>()(pair.second));
   }
 };
 

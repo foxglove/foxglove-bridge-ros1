@@ -88,6 +88,8 @@ find_package(catkin REQUIRED COMPONENTS
   ros_babel_fish
 )
 
+# Intentionally exports nothing: this is a leaf package; no downstream
+# package builds against foxglove_bridge_lib.
 catkin_package()
 
 # Fetch the released SDK zip from GitHub. It contains the prebuilt C libraries
@@ -156,9 +158,8 @@ target_link_libraries(foxglove_bridge_lib
   PUBLIC foxglove_cpp_shared ${catkin_LIBRARIES}
   PRIVATE Threads::Threads
 )
-if (FOXGLOVE_BRIDGE_REMOTE_ACCESS)
-  target_compile_definitions(foxglove_bridge_lib PUBLIC FOXGLOVE_REMOTE_ACCESS)
-endif()
+# The FOXGLOVE_REMOTE_ACCESS compile definition propagates PUBLIC from
+# foxglove_cpp_shared (set by the SDK's foxglove_sdk_add_cpp_library).
 enable_strict_compiler_warnings(foxglove_bridge_lib)
 set_target_properties(foxglove_bridge_lib PROPERTIES
   INSTALL_RPATH "$ORIGIN"
