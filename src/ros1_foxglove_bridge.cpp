@@ -696,6 +696,7 @@ void Ros1FoxgloveBridge::onClientUnadvertise(ChannelId clientChannelId, ClientId
 void Ros1FoxgloveBridge::onClientMessage(ChannelId clientChannelId, ClientId clientId,
                                          bool isGateway, const std::byte* data, size_t dataLen) {
   topic_tools::ShapeShifter shapeShifter;
+  ros::Publisher publisher;
   {
     const ClientChannelKey key = {clientChannelId, clientId, isGateway};
     std::lock_guard<std::mutex> lock(_clientAdvertisementsMutex);
@@ -714,8 +715,13 @@ void Ros1FoxgloveBridge::onClientMessage(ChannelId clientChannelId, ClientId cli
       static_cast<uint32_t>(dataLen));
     shapeShifter.read(stream);
 
-    it->second.publisher.publish(shapeShifter);
+    publisher = ad.publisher;
   }
+  // Publish on a copied handle outside the lock: publish() does roscpp work
+  // that would otherwise serialize every client publish across all clients
+  // and transports. The handle keeps the underlying publication alive even
+  // if the advertisement is concurrently removed.
+  publisher.publish(shapeShifter);
 }
 
 void Ros1FoxgloveBridge::onConnectionGraphSubscribe(bool subscribe) {
