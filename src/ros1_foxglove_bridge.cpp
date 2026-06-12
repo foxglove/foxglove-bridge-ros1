@@ -165,8 +165,14 @@ Ros1FoxgloveBridge::Ros1FoxgloveBridge(ros::NodeHandle nh, ros::NodeHandle priva
 }
 
 Ros1FoxgloveBridge::~Ros1FoxgloveBridge() {
-  _shuttingDown = true;
   ROS_INFO("Shutting down foxglove_bridge");
+  // Set the flag under _pollMutex: written unlocked, it can land between the
+  // poll thread's predicate check and its wait, losing the notify and
+  // delaying shutdown by up to max_update_ms.
+  {
+    std::lock_guard<std::mutex> lock(_pollMutex);
+    _shuttingDown = true;
+  }
   _pollCv.notify_all();
   if (_pollThread) {
     _pollThread->join();

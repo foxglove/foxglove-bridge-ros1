@@ -136,9 +136,22 @@ private:
   ros_babel_fish::IntegratedDescriptionProvider _descriptionProvider;
   std::mutex _descriptionProviderMutex;
 
+  // Declared before the containers it guards so it is destroyed after them:
+  // the ros::Subscribers in _subscriptions have callbacks that lock this
+  // mutex until the subscribers themselves are destroyed.
+  //
+  // Lock-order invariant (verified against the SDK internals): the gateway
+  // runs onSubscribe/onUnsubscribe under its internal subscription lock, and
+  // channel.log() / RawChannel::create() — both called under
+  // _subscriptionsMutex — take the SDK's channel-registry lock. Closing or
+  // destroying a live RawChannel takes the gateway subscription lock again,
+  // which closes the cycle: channel.close() and channel destruction must
+  // NEVER happen while _subscriptionsMutex is held (see channelsToClose in
+  // updateAdvertisedTopics). _latchedChannelsMutex below documents the
+  // QoS-classifier half of the same invariant.
+  std::mutex _subscriptionsMutex;
   std::unordered_map<ChannelId, foxglove::RawChannel> _channels;
   std::unordered_map<ChannelId, ChannelSubscription> _subscriptions;
-  std::mutex _subscriptionsMutex;
 
   // Channels with an observed latched publisher, for remote-access QoS
   // classification. Kept under its OWN mutex: the SDK invokes the QoS
