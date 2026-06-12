@@ -157,6 +157,13 @@ CMD ["rosrun", "foxglove_bridge", "foxglove_bridge"]
 # packages. The explicit package list is the ldd closure of the install
 # spaces (transitive dependencies resolve via apt); the runtime pip packages
 # back the ROS 1 python tools (rosmaster, roslaunch, rosbag).
+#
+# ca-certificates and libbz2-1.0 are listed explicitly even though they would
+# arrive transitively today (via python3-pip's dependency and libpython
+# respectively): ca-certificates is data, not a linked library, so it is not
+# in the ldd closure, and TLS (remote access, https assets) silently fails
+# without it; libbz2 backs rosbag's bzip2 compression. Pinning both here keeps
+# a future dependency change from quietly breaking them.
 # ---------------------------------------------------------------------------
 FROM ubuntu:22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
@@ -172,6 +179,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libboost-program-options1.74.0 \
         libboost-regex1.74.0 \
         libboost-thread1.74.0 \
+        libbz2-1.0 \
+        ca-certificates \
         libconsole-bridge1.0 \
         libcurl4 \
         libgpgme11 \
