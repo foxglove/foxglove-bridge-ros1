@@ -12,8 +12,25 @@ namespace foxglove_bridge {
 
 namespace {
 
-foxglove::ParameterValue valueFromRosParam(XmlRpc::XmlRpcValue& value) {
+// Cap nesting depth in the recursive parameter conversions below, so a
+// deeply nested value can't overflow the stack. Real parameters are shallow,
+// so a generous cap costs nothing; the throw is caught by the callers, which
+// handle each parameter individually.
+//
+// The client direction (toRosParam) is already bounded upstream: the SDK
+// parses client messages with serde_json, whose default recursion limit
+// (128) rejects over-deep values before they reach us. This cap matters most
+// for the master direction (valueFromRosParam), whose XmlRpc::XmlRpcValue
+// comes from roscpp's XML-RPC parser and has no such guarantee. Set to 128 to
+// match serde_json's limit, so this never rejects a value the SDK accepted.
+constexpr int MAX_PARAM_DEPTH = 128;
+
+foxglove::ParameterValue valueFromRosParam(XmlRpc::XmlRpcValue& value, int depth = 0) {
   using XmlRpc::XmlRpcValue;
+  if (depth > MAX_PARAM_DEPTH) {
+    throw std::runtime_error("Parameter value nested deeper than " +
+                             std::to_string(MAX_PARAM_DEPTH));
+  }
   switch (value.getType()) {
     case XmlRpcValue::TypeBoolean:
       return foxglove::ParameterValue(static_cast<bool>(value));
@@ -27,14 +44,14 @@ foxglove::ParameterValue valueFromRosParam(XmlRpc::XmlRpcValue& value) {
       std::vector<foxglove::ParameterValue> values;
       values.reserve(static_cast<size_t>(value.size()));
       for (int i = 0; i < value.size(); ++i) {
-        values.push_back(valueFromRosParam(value[i]));
+        values.push_back(valueFromRosParam(value[i], depth + 1));
       }
       return foxglove::ParameterValue(std::move(values));
     }
     case XmlRpcValue::TypeStruct: {
       std::map<std::string, foxglove::ParameterValue> values;
       for (auto& [memberName, memberValue] : value) {
-        values.insert({memberName, valueFromRosParam(memberValue)});
+        values.insert({memberName, valueFromRosParam(memberValue, depth + 1)});
       }
       return foxglove::ParameterValue(std::move(values));
     }
@@ -55,14 +72,19 @@ foxglove::Parameter fromRosParam(const std::string& name, XmlRpc::XmlRpcValue& v
     case XmlRpcValue::TypeString:
       return foxglove::Parameter(name, static_cast<std::string&>(value));
     default:
-      return foxglove::Parameter(name, foxglove::ParameterType::None, valueFromRosParam(value));
+      return foxglove::Parameter(name, foxglove::ParameterType::None,
+                                 valueFromRosParam(value, 1));
   }
 }
 
 XmlRpc::XmlRpcValue toRosParam(
-  const foxglove::ParameterValueView& value, foxglove::ParameterType type
+  const foxglove::ParameterValueView& value, foxglove::ParameterType type, int depth = 0
 ) {
   using XmlRpc::XmlRpcValue;
+  if (depth > MAX_PARAM_DEPTH) {
+    throw std::runtime_error("Parameter value nested deeper than " +
+                             std::to_string(MAX_PARAM_DEPTH));
+  }
   if (value.is<bool>()) {
     return XmlRpcValue(value.get<bool>());
   } else if (value.is<int64_t>()) {
@@ -80,13 +102,13 @@ XmlRpc::XmlRpcValue toRosParam(
     XmlRpcValue arr;
     const auto values = value.get<foxglove::ParameterValueView::Array>();
     for (size_t i = 0; i < values.size(); ++i) {
-      arr[static_cast<int>(i)] = toRosParam(values[i], foxglove::ParameterType::None);
+      arr[static_cast<int>(i)] = toRosParam(values[i], foxglove::ParameterType::None, depth + 1);
     }
     return arr;
   } else if (value.is<foxglove::ParameterValueView::Dict>()) {
     XmlRpcValue obj;
     for (const auto& [memberName, memberValue] : value.get<foxglove::ParameterValueView::Dict>()) {
-      obj[memberName] = toRosParam(memberValue, foxglove::ParameterType::None);
+      obj[memberName] = toRosParam(memberValue, foxglove::ParameterType::None, depth + 1);
     }
     return obj;
   }
@@ -218,6 +240,18 @@ bool Ros1ParameterInterface::executeParamSubscription(
 }
 
 void Ros1ParameterInterface::subscribeParams(const std::vector<std::string_view>& paramNames) {
+  {
+    // After shutdown() the XML-RPC server is stopped; registering now would
+    // point the master at a dead URI, and shutdown()'s idempotence guard means
+    // it would never be cleaned up. Checked before executeParamSubscription so
+    // no registration is issued, not just skipped in the bookkeeping. The
+    // param worker (the only caller) is still alive between shutdown() and the
+    // later _transports->stop() that joins it, so this path is reachable.
+    std::lock_guard<std::mutex> lock(_mutex);
+    if (_shutdown) {
+      return;
+    }
+  }
   for (const auto& nameView : paramNames) {
     const std::string name(nameView);
     if (!isWhitelisted(name, _paramWhitelistPatterns)) {
