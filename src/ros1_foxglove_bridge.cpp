@@ -84,6 +84,7 @@ Ros1FoxgloveBridge::Ros1FoxgloveBridge(ros::NodeHandle nh, ros::NodeHandle priva
     saturatingToSizeT(static_cast<int64_t>(_privateNh.param<int>("max_update_ms", 5000)));
   _serviceTypeRetrievalTimeoutMs =
     _privateNh.param<int>("service_type_retrieval_timeout_ms", 250);
+  _serviceCallTimeoutMs = _privateNh.param<int>("service_call_timeout_ms", 5000);
   _subscriptionQueueLength = _privateNh.param<int>("subscription_queue_length", 10);
 
   const bool debug = _privateNh.param<bool>("debug", false);
@@ -265,6 +266,8 @@ void Ros1FoxgloveBridge::pollThread() {
     } catch (const std::exception& ex) {
       ROS_ERROR("Exception thrown in pollThread: %s", ex.what());
     }
+
+    sweepExpiredServiceCalls();
 
     // Exponential backoff: 100ms -> 200ms -> 400ms ... up to max_update_ms.
     ++updateCount;
@@ -793,20 +796,90 @@ void Ros1FoxgloveBridge::handleServiceRequest(const foxglove::ServiceRequest& re
     return;
   }
 
-  GenericService genReq, genRes;
-  genReq.type = genRes.type = details.type;
-  genReq.md5sum = genRes.md5sum = details.md5sum;
+  // The SDK invokes this handler on its poll loop, which must not block (see
+  // foxglove::ServiceHandler), and ros::service::call has no deadline. Run
+  // the call on a detached worker and let the poll thread's sweep respond
+  // with an error if the deadline passes first; whoever takes the responder
+  // out of the shared state responds, exactly once. The worker deliberately
+  // captures no `this`: a call stuck in roscpp can outlive the bridge.
+  auto pending = std::make_shared<PendingServiceCall>();
+  pending->responder.emplace(std::move(responder));
+  pending->serviceName = request.service_name;
+  {
+    std::lock_guard<std::mutex> lock(_pendingServiceCallsMutex);
+    _pendingServiceCalls.emplace_back(
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(_serviceCallTimeoutMs),
+      pending);
+  }
+
+  GenericService genReq;
+  genReq.type = details.type;
+  genReq.md5sum = details.md5sum;
   genReq.data.resize(request.payload.size());
   std::memcpy(genReq.data.data(), request.payload.data(), request.payload.size());
 
-  if (ros::service::call(request.service_name, genReq, genRes)) {
-    std::move(responder).respondOk(reinterpret_cast<const std::byte*>(genRes.data.data()),
-                                   genRes.data.size());
-  } else {
-    const std::string errorMessage =
-      "Failed to call service " + request.service_name + " (" + details.type + ")";
-    ROS_ERROR("%s", errorMessage.c_str());
-    std::move(responder).respondError(errorMessage);
+  std::thread([pending, genReq = std::move(genReq),
+               serviceName = request.service_name]() mutable {
+    GenericService genRes;
+    genRes.type = genReq.type;
+    genRes.md5sum = genReq.md5sum;
+    const bool ok = ros::service::call(serviceName, genReq, genRes);
+
+    std::optional<foxglove::ServiceResponder> takenResponder;
+    {
+      std::lock_guard<std::mutex> lock(pending->mutex);
+      takenResponder.swap(pending->responder);
+    }
+    if (!takenResponder) {
+      return;  // The watchdog already responded with a timeout error.
+    }
+    if (ok) {
+      std::move(*takenResponder)
+        .respondOk(reinterpret_cast<const std::byte*>(genRes.data.data()), genRes.data.size());
+    } else {
+      const std::string errorMessage =
+        "Failed to call service " + serviceName + " (" + genReq.type + ")";
+      ROS_ERROR("%s", errorMessage.c_str());
+      std::move(*takenResponder).respondError(errorMessage);
+    }
+  }).detach();
+}
+
+void Ros1FoxgloveBridge::sweepExpiredServiceCalls() {
+  const auto now = std::chrono::steady_clock::now();
+  std::vector<std::shared_ptr<PendingServiceCall>> expired;
+  {
+    std::lock_guard<std::mutex> lock(_pendingServiceCallsMutex);
+    auto it = _pendingServiceCalls.begin();
+    while (it != _pendingServiceCalls.end()) {
+      bool completed;
+      {
+        std::lock_guard<std::mutex> pendingLock(it->second->mutex);
+        completed = !it->second->responder.has_value();
+      }
+      if (completed) {
+        it = _pendingServiceCalls.erase(it);
+      } else if (it->first <= now) {
+        expired.push_back(std::move(it->second));
+        it = _pendingServiceCalls.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  for (const auto& pending : expired) {
+    std::optional<foxglove::ServiceResponder> takenResponder;
+    {
+      std::lock_guard<std::mutex> lock(pending->mutex);
+      takenResponder.swap(pending->responder);
+    }
+    if (takenResponder) {
+      const std::string errorMessage = "Service call to " + pending->serviceName +
+                                       " timed out after " +
+                                       std::to_string(_serviceCallTimeoutMs) + " ms";
+      ROS_ERROR("%s", errorMessage.c_str());
+      std::move(*takenResponder).respondError(errorMessage);
+    }
   }
 }
 

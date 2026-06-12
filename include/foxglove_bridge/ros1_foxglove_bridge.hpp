@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -85,6 +86,15 @@ private:
     ros_babel_fish::ServiceDescription::ConstPtr description;
   };
 
+  // A client service call in flight on a worker thread. The responder is
+  // consumed exactly once, by whichever of {call worker, watchdog sweep}
+  // takes it first.
+  struct PendingServiceCall {
+    std::mutex mutex;
+    std::optional<foxglove::ServiceResponder> responder;
+    std::string serviceName;
+  };
+
   // One shared ROS subscription per channel, reference-counted by client subscriptions
   struct CachedLatchedMessage {
     std::vector<uint8_t> data;
@@ -115,6 +125,12 @@ private:
 
   void handleServiceRequest(const foxglove::ServiceRequest& request,
                             foxglove::ServiceResponder&& responder);
+
+  /// Respond with an error to pending service calls whose deadline has
+  /// passed, and drop completed entries. Runs on the poll thread, so the
+  /// timeout is enforced at master-poll granularity (up to ~max_update_ms
+  /// late).
+  void sweepExpiredServiceCalls();
 
   /// Look up a message description, serialized through a mutex: the provider
   /// is not thread-safe and is reached from both the poll thread and SDK
@@ -171,6 +187,14 @@ private:
   std::unordered_map<std::string, std::unique_ptr<foxglove::ServiceHandler>> _serviceHandlers;
   std::mutex _servicesMutex;
 
+  // Outstanding client service calls with their deadlines, swept by the poll
+  // thread. Entries left at shutdown drop their responders, which sends the
+  // client an error status.
+  std::vector<
+    std::pair<std::chrono::steady_clock::time_point, std::shared_ptr<PendingServiceCall>>>
+    _pendingServiceCalls;
+  std::mutex _pendingServiceCallsMutex;
+
   std::vector<std::regex> _topicWhitelistPatterns;
   std::vector<std::regex> _serviceWhitelistPatterns;
   std::vector<std::regex> _assetUriAllowlistPatterns;
@@ -186,6 +210,7 @@ private:
 
   size_t _maxUpdatePeriodMs = 5000;
   int _serviceTypeRetrievalTimeoutMs = 250;
+  int _serviceCallTimeoutMs = 5000;
   int _subscriptionQueueLength = 10;
 };
 
