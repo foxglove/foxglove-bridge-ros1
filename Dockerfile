@@ -12,6 +12,10 @@
 # or via the Makefile:
 #   make docker-build
 #
+# The final stage is a slim runtime image (the install spaces only). The
+# `bridge` stage keeps the full build environment; `make docker-test` builds
+# and uses that stage.
+#
 # Run against an external rosmaster and the Foxglove platform:
 #   docker run --rm --network host \
 #     -e ROS_MASTER_URI=http://localhost:11311 \
@@ -98,7 +102,9 @@ RUN cd /ros_ws \
         -DCMAKE_BUILD_TYPE=Release
 
 # ---------------------------------------------------------------------------
-# Stage 2: foxglove_bridge.
+# Stage 2: build foxglove_bridge. This stage keeps the full build environment
+# (sources, build trees, compilers, test dependencies); `make docker-test`
+# builds it via --target bridge and runs the test suite inside it.
 # ---------------------------------------------------------------------------
 FROM noetic-base AS bridge
 
@@ -141,6 +147,48 @@ RUN . /opt/ros/noetic/setup.sh \
         -DFOXGLOVE_BRIDGE_REMOTE_ACCESS=${FOXGLOVE_BRIDGE_REMOTE_ACCESS} \
         -DFETCHCONTENT_BASE_DIR=/sdk/fetchcontent
 
+COPY entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["rosrun", "foxglove_bridge", "foxglove_bridge"]
+
+# ---------------------------------------------------------------------------
+# Stage 3 (final): slim runtime image — the Noetic and bridge install spaces
+# on a fresh base, without sources, build trees, compilers, or test-only
+# packages. The explicit package list is the ldd closure of the install
+# spaces (transitive dependencies resolve via apt); the runtime pip packages
+# back the ROS 1 python tools (rosmaster, roslaunch, rosbag).
+# ---------------------------------------------------------------------------
+FROM ubuntu:22.04 AS runtime
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-yaml \
+        python3-netifaces \
+        libpython3.10 \
+        libboost-chrono1.74.0 \
+        libboost-filesystem1.74.0 \
+        libboost-program-options1.74.0 \
+        libboost-regex1.74.0 \
+        libboost-thread1.74.0 \
+        libconsole-bridge1.0 \
+        libcurl4 \
+        libgpgme11 \
+        liblog4cxx12 \
+        liblz4-1 \
+        libpocofoundation80 \
+        libtinyxml2-9 \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip3 install --no-cache-dir \
+        catkin-pkg==1.1.0 \
+        rospkg==1.6.1 \
+        defusedxml==0.7.1 \
+        pycryptodomex==3.23.0 \
+        python-gnupg==0.5.6
+
+COPY --from=bridge /opt/ros/noetic /opt/ros/noetic
+COPY --from=bridge /opt/foxglove /opt/foxglove
 COPY entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["rosrun", "foxglove_bridge", "foxglove_bridge"]

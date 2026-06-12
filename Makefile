@@ -1,14 +1,24 @@
 FOXGLOVE_BRIDGE_REMOTE_ACCESS := ON
 
+# The slim runtime image (the Dockerfile's final stage) for deployment.
 .PHONY: docker-build
 docker-build:
 	docker build \
 		--build-arg FOXGLOVE_BRIDGE_REMOTE_ACCESS=$(FOXGLOVE_BRIDGE_REMOTE_ACCESS) \
 		-t foxglove-bridge-ros1 .
 
+# The full build environment (sources, build trees, compilers); the test
+# targets run inside this stage.
+.PHONY: docker-build-test-image
+docker-build-test-image:
+	docker build \
+		--target bridge \
+		--build-arg FOXGLOVE_BRIDGE_REMOTE_ACCESS=$(FOXGLOVE_BRIDGE_REMOTE_ACCESS) \
+		-t foxglove-bridge-ros1-build .
+
 .PHONY: docker-test
-docker-test: docker-build
-	docker run --rm foxglove-bridge-ros1 bash -c "\
+docker-test: docker-build-test-image
+	docker run --rm foxglove-bridge-ros1-build bash -c "\
 		cd /bridge_ws \
 		&& catkin_make_isolated --install --install-space /opt/foxglove \
 			--catkin-make-args run_tests \
@@ -22,14 +32,14 @@ docker-test: docker-build
 # workspace is wiped first so the image's CMake cache (which points at the
 # downloaded release zip) can't leak into the local-SDK build.
 .PHONY: docker-test-local-sdk
-docker-test-local-sdk: docker-build
+docker-test-local-sdk: docker-build-test-image
 ifndef FOXGLOVE_CPP_SDK_DIR
 	$(error FOXGLOVE_CPP_SDK_DIR must point at a cpp/dist tree built with `make build-cpp-dist` in a foxglove-sdk checkout)
 endif
 	docker run --rm \
 		-v $(abspath $(FOXGLOVE_CPP_SDK_DIR)):/sdk/cpp/dist:ro \
 		-v $(CURDIR):/bridge_ws/src/foxglove_bridge:ro \
-		foxglove-bridge-ros1 bash -c "\
+		foxglove-bridge-ros1-build bash -c "\
 		cd /bridge_ws \
 		&& rm -rf build_isolated devel_isolated \
 		&& catkin_make_isolated --install --install-space /opt/foxglove \
