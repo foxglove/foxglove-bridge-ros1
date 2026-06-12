@@ -5,7 +5,23 @@ on:
     branches: [main]
   pull_request:
 
+# Superseded runs are pointless at this build's cost; cancel them.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  lint:
+    # Pinned runner: clang-format comes from the distro (18 on 24.04), and
+    # formatting must be checked with the version the code was formatted with.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+      - run: make lint
+
   test:
     runs-on: ubuntu-latest
     # Stage 1 of the Dockerfile builds Noetic from source, which dominates the
@@ -14,5 +30,30 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - name: Build image and run smoke tests
-        run: make docker-test
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the test image (bridge stage)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: bridge
+          tags: foxglove-bridge-ros1-build
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Run the smoke suite
+        run: make docker-test-run
+      - name: Build the runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          tags: foxglove-bridge-ros1
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Boot-check the runtime image
+        run: |
+          docker run --rm foxglove-bridge-ros1 bash -c "\
+            roscore > /tmp/rc.log 2>&1 & sleep 5; \
+            rosrun foxglove_bridge foxglove_bridge > /tmp/fb.log 2>&1 & sleep 6; \
+            grep -q 'Server listening' /tmp/fb.log && rostopic list \
+              || { cat /tmp/rc.log /tmp/fb.log; exit 1; }"
