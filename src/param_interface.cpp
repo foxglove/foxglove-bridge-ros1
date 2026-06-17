@@ -28,8 +28,9 @@ constexpr int MAX_PARAM_DEPTH = 128;
 foxglove::ParameterValue valueFromRosParam(XmlRpc::XmlRpcValue& value, int depth = 0) {
   using XmlRpc::XmlRpcValue;
   if (depth > MAX_PARAM_DEPTH) {
-    throw std::runtime_error("Parameter value nested deeper than " +
-                             std::to_string(MAX_PARAM_DEPTH));
+    throw std::runtime_error(
+      "Parameter value nested deeper than " + std::to_string(MAX_PARAM_DEPTH)
+    );
   }
   switch (value.getType()) {
     case XmlRpcValue::TypeBoolean:
@@ -72,8 +73,7 @@ foxglove::Parameter fromRosParam(const std::string& name, XmlRpc::XmlRpcValue& v
     case XmlRpcValue::TypeString:
       return foxglove::Parameter(name, static_cast<std::string&>(value));
     default:
-      return foxglove::Parameter(name, foxglove::ParameterType::None,
-                                 valueFromRosParam(value, 1));
+      return foxglove::Parameter(name, foxglove::ParameterType::None, valueFromRosParam(value, 1));
   }
 }
 
@@ -82,8 +82,9 @@ XmlRpc::XmlRpcValue toRosParam(
 ) {
   using XmlRpc::XmlRpcValue;
   if (depth > MAX_PARAM_DEPTH) {
-    throw std::runtime_error("Parameter value nested deeper than " +
-                             std::to_string(MAX_PARAM_DEPTH));
+    throw std::runtime_error(
+      "Parameter value nested deeper than " + std::to_string(MAX_PARAM_DEPTH)
+    );
   }
   if (value.is<bool>()) {
     return XmlRpcValue(value.get<bool>());
