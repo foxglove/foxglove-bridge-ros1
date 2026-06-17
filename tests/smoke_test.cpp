@@ -332,12 +332,14 @@ TEST(SmokeTest, ParameterTypes) {
   EXPECT_EQ(byName["/types/int"]->value()->get<int64_t>(), 42);
   EXPECT_DOUBLE_EQ(byName["/types/double"]->value()->get<double>(), 2.5);
   EXPECT_EQ(byName["/types/bool"]->value()->get<bool>(), true);
-  const auto arr = byName["/types/array"]->value()->get<std::vector<foxglove::ParameterValueView>>();
+  const auto arr =
+    byName["/types/array"]->value()->get<std::vector<foxglove::ParameterValueView>>();
   ASSERT_EQ(arr.size(), 3u);
   EXPECT_EQ(arr[0].get<int64_t>(), 1);
   EXPECT_EQ(arr[2].get<int64_t>(), 3);
   bool foundX = false;
-  for (const auto& [key, value] : byName["/types/dict"]->value()->get<foxglove::ParameterValueView::Dict>()) {
+  for (const auto& [key, value] :
+       byName["/types/dict"]->value()->get<foxglove::ParameterValueView::Dict>()) {
     if (key == "x") {
       EXPECT_EQ(value.get<int64_t>(), 7);
       foundX = true;
