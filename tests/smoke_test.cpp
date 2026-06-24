@@ -300,6 +300,43 @@ TEST(SmokeTest, Parameters) {
   EXPECT_EQ(params[0].value()->get<std::string>(), "pushed");
 }
 
+TEST(SmokeTest, BridgeOwnParametersNotExposed) {
+  // The bridge runs as node "foxglove_bridge", so its private parameters
+  // (including the remote-access device_token set in smoke.test) live under
+  // "/foxglove_bridge/". None of them may be returned to a client, regardless
+  // of the default ".*" parameter whitelist. Mirrors the ROS 2 bridge, which
+  // excludes its own node when enumerating parameters.
+  constexpr char kOwnPrefix[] = "/foxglove_bridge/";
+  constexpr char kDeviceToken[] = "/foxglove_bridge/device_token";
+
+  auto client = std::make_shared<Client>();
+  ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
+
+  // Enumerate-all path: an empty request lists every parameter on the master,
+  // but must omit the bridge's own.
+  auto allFuture = client->waitForParameters("get-all");
+  client->getParameters({}, "get-all");
+  ASSERT_EQ(std::future_status::ready, allFuture.wait_for(DEFAULT_TIMEOUT));
+  for (const auto& param : allFuture.get()) {
+    EXPECT_NE(param.name().rfind(kOwnPrefix, 0), 0u)
+      << "Bridge leaked its own parameter: " << param.name();
+  }
+
+  // Explicitly-named path: asking for the device_token by name must also
+  // return nothing.
+  auto tokenFuture = client->waitForParameters("get-token");
+  client->getParameters({kDeviceToken}, "get-token");
+  ASSERT_EQ(std::future_status::ready, tokenFuture.wait_for(DEFAULT_TIMEOUT));
+  EXPECT_TRUE(tokenFuture.get().empty());
+
+  // Sanity check: the secret really is set on the master, so the assertions
+  // above exercise the exclusion rather than an absent parameter.
+  ros::NodeHandle nh;
+  std::string rosValue;
+  ASSERT_TRUE(nh.getParam(kDeviceToken, rosValue));
+  EXPECT_EQ(rosValue, "fox_dt_smoke_test_secret");
+}
+
 TEST(SmokeTest, ParameterTypes) {
   // Round-trip every non-string parameter type through both conversion
   // directions: master -> client (valueFromRosParam) on get, and

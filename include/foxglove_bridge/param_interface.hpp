@@ -51,8 +51,19 @@ private:
   /// Issue a master subscribeParam/unsubscribeParam call for one parameter.
   bool executeParamSubscription(const std::string& opName, const std::string& paramName);
 
+  /// True if `name` is one of the bridge node's own parameters, i.e. lives
+  /// under its private namespace. Mirrors the ROS 2 bridge, which excludes its
+  /// own node when enumerating parameters, so the bridge never exposes its own
+  /// configuration -- most importantly the remote-access `device_token` -- back
+  /// to connected clients, regardless of the parameter whitelist.
+  bool isOwnParameter(const std::string& name) const;
+
   ros::NodeHandle _nh;
   std::vector<std::regex> _paramWhitelistPatterns;
+
+  /// Resolved private namespace of the bridge node (`<node_name>/`), used by
+  /// isOwnParameter to identify the bridge's own parameters.
+  const std::string _ownNamespacePrefix;
 
   ros::XMLRPCManager _xmlrpcServer;
 

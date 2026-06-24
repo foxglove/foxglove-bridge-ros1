@@ -122,7 +122,8 @@ Ros1ParameterInterface::Ros1ParameterInterface(
   ros::NodeHandle nh, std::vector<std::regex> paramWhitelistPatterns
 )
     : _nh(std::move(nh))
-    , _paramWhitelistPatterns(std::move(paramWhitelistPatterns)) {
+    , _paramWhitelistPatterns(std::move(paramWhitelistPatterns))
+    , _ownNamespacePrefix(ros::this_node::getName() + "/") {
   _xmlrpcServer.bind(
     "paramUpdate",
     [this](XmlRpc::XmlRpcValue& params, XmlRpc::XmlRpcValue& result) {
@@ -176,6 +177,11 @@ ParameterList Ros1ParameterInterface::getParams(
 
   ParameterList params;
   for (const auto& name : names) {
+    if (isOwnParameter(name)) {
+      // Never expose the bridge's own parameters (e.g. device_token) to
+      // clients, even if explicitly requested and regardless of the whitelist.
+      continue;
+    }
     if (!isWhitelisted(name, _paramWhitelistPatterns)) {
       if (!allParametersRequested) {
         ROS_ERROR("Parameter '%s' is not on the parameter whitelist", name.c_str());
@@ -240,6 +246,10 @@ bool Ros1ParameterInterface::executeParamSubscription(
   return false;
 }
 
+bool Ros1ParameterInterface::isOwnParameter(const std::string& name) const {
+  return name.compare(0, _ownNamespacePrefix.size(), _ownNamespacePrefix) == 0;
+}
+
 void Ros1ParameterInterface::subscribeParams(const std::vector<std::string_view>& paramNames) {
   {
     // After shutdown() the XML-RPC server is stopped; registering now would
@@ -255,6 +265,11 @@ void Ros1ParameterInterface::subscribeParams(const std::vector<std::string_view>
   }
   for (const auto& nameView : paramNames) {
     const std::string name(nameView);
+    if (isOwnParameter(name)) {
+      // A subscription pushes the parameter's value to the client on change;
+      // don't let clients subscribe to the bridge's own parameters.
+      continue;
+    }
     if (!isWhitelisted(name, _paramWhitelistPatterns)) {
       ROS_ERROR("Parameter '%s' is not on the parameter whitelist", name.c_str());
       continue;

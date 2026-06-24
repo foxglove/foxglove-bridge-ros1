@@ -8,6 +8,10 @@
     <!-- Short deadline so the ServiceCallTimeout test completes quickly; the
          timeout is enforced at master-poll granularity (up to ~5s late). -->
     <param name="service_call_timeout_ms" value="1000" />
+    <!-- A stand-in secret for the BridgeOwnParametersNotExposed test, which
+         asserts the bridge never hands its own private params back to a
+         client. -->
+    <param name="device_token" value="fox_dt_smoke_test_secret" />
   </node>
 
   <test test-name="smoke_test" pkg="foxglove_bridge" type="smoke_test" time-limit="300.0" />
