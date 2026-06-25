@@ -111,9 +111,18 @@ Ros1FoxgloveBridge::Ros1FoxgloveBridge(ros::NodeHandle nh, ros::NodeHandle priva
   _serviceCallTimeoutMs = _privateNh.param<int>("service_call_timeout_ms", 5000);
   _subscriptionQueueLength = _privateNh.param<int>("subscription_queue_length", 10);
 
+  // Always initialize SDK logging so its stderr output (including the reason
+  // the remote access gateway shuts down) is visible; without this call the
+  // SDK leaves logging disabled. Escalate to Debug when requested, raising the
+  // ROS console level to match so ROS_DEBUG output is emitted too.
   const bool debug = _privateNh.param<bool>("debug", false);
   if (debug) {
     foxglove::setLogLevel(foxglove::LogLevel::Debug);
+    if (ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Debug)) {
+      ros::console::notifyLoggerLevelsChanged();
+    }
+  } else {
+    foxglove::setLogLevel(foxglove::LogLevel::Info);
   }
 
   // use_sim_time is a global (not private) parameter in ROS 1.
