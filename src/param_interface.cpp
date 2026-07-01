@@ -210,6 +210,12 @@ void Ros1ParameterInterface::setParams(
 
   for (const auto& param : params) {
     const std::string name(param.name());
+    if (isOwnParameter(name)) {
+      // Never let clients modify the bridge's own parameters (e.g.
+      // device_token), even if explicitly requested and regardless of the
+      // whitelist.
+      continue;
+    }
     if (!isWhitelisted(name, _paramWhitelistPatterns)) {
       ROS_ERROR("Parameter '%s' is not on the parameter whitelist", name.c_str());
       continue;
