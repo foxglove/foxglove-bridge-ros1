@@ -104,6 +104,28 @@ The default `asset_uri_allowlist` permits `package://` URIs ending in a
 common mesh/description extension (dae, fbx, glb, gltf, jpeg, jpg, mtl, obj,
 png, stl, tif, tiff, urdf, webp, xacro); see the source for the exact regex.
 
+### Custom message types
+
+Messages pass through the bridge as raw bytes, so any custom type flows to
+clients without rebuilding the bridge. But to advertise a channel with a
+schema that clients can *decode*, the bridge must find the type's `.msg`
+files in a package on its own `ROS_PACKAGE_PATH` (it does not learn
+definitions from publishers). Topics whose type it cannot find are
+advertised without a schema — the data arrives but the Foxglove app cannot
+decode it — and the bridge logs `Could not find definition for type <X>`.
+Publishing *into* ROS (client advertise) and calling services require the
+definition and fail without it.
+
+Only the `package.xml` and `msg/` (and `srv/`) files of the message package
+need to be visible; nothing has to be compiled. When running the bridge
+natively, source the workspace containing the message packages before
+starting it. When running the container, mount them like any other package
+(see the next section):
+
+```sh
+  -v /path/to/my_robot_msgs:/opt/foxglove/share/my_robot_msgs:ro
+```
+
 ### Assets in a sidecar deployment
 
 `fetchAsset` resolves `package://` URIs with resource_retriever against the
