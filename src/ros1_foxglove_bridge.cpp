@@ -78,7 +78,9 @@ Ros1FoxgloveBridge::Ros1FoxgloveBridge(ros::NodeHandle nh, ros::NodeHandle priva
     , _privateNh(std::move(privateNh)) {
   const char* rosDistro = std::getenv("ROS_DISTRO");
   ROS_INFO(
-    "Starting foxglove_bridge %s@%s (%s)", FOXGLOVE_BRIDGE_VERSION, FOXGLOVE_BRIDGE_GIT_HASH,
+    "Starting foxglove_bridge %s@%s (%s)",
+    FOXGLOVE_BRIDGE_VERSION,
+    FOXGLOVE_BRIDGE_GIT_HASH,
     rosDistro ? rosDistro : "unknown"
   );
 
