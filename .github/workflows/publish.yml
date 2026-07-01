@@ -1,0 +1,80 @@
+name: Publish Docker image
+
+# On-demand only: manual dispatch publishes a SHA-tagged image; pushing a
+# release tag (v*) publishes a version-tagged image. Never runs on PRs.
+on:
+  workflow_dispatch: {}
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    # Stage 1 of the Dockerfile builds Noetic from source, which dominates the
+    # runtime on a cold cache; cap the job well below the 6-hour default so a
+    # hung build fails fast.
+    timeout-minutes: 120
+    env:
+      # The ros-noetic-* tag namespace here sits alongside the ROS 2 distro
+      # tags published by foxglove-sdk's publish-ros-bridge.yml.
+      DOCKER_REPO: us-central1-docker.pkg.dev/foxglove-images/images/foxglove_bridge
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Auth gcloud
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.PUBLISHER_KEY }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure gcloud docker
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Compute image tag
+        id: compute-tag
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            echo "Using release version: ${VERSION}"
+          else
+            VERSION="${GITHUB_SHA}"
+            echo "Using SHA version: ${VERSION}"
+          fi
+
+          echo "tag=${DOCKER_REPO}:ros-noetic-${VERSION}" >> "$GITHUB_OUTPUT"
+
+      # .dockerignore keeps .git out of the build context, so the hash for the
+      # bridge's startup banner must be passed in (same as the Makefile does).
+      - name: Compute git hash
+        id: compute-git-hash
+        run: echo "hash=$(git describe --always --dirty --exclude='*')" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            FOXGLOVE_BRIDGE_GIT_HASH=${{ steps.compute-git-hash.outputs.hash }}
+          tags: ${{ steps.compute-tag.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Show summary
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Image published
+
+          - \`${{ steps.compute-tag.outputs.tag }}\`
+          EOF
