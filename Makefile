@@ -1,10 +1,15 @@
 FOXGLOVE_BRIDGE_REMOTE_ACCESS := ON
 
+# .dockerignore keeps .git out of the build context, so capture the hash here
+# and hand it to the build (Dockerfile ARG -> cmake -> version.cpp).
+FOXGLOVE_BRIDGE_GIT_HASH := $(shell git describe --always --dirty --exclude='*')
+
 # The slim runtime image (the Dockerfile's final stage) for deployment.
 .PHONY: docker-build
 docker-build:
 	docker build \
 		--build-arg FOXGLOVE_BRIDGE_REMOTE_ACCESS=$(FOXGLOVE_BRIDGE_REMOTE_ACCESS) \
+		--build-arg FOXGLOVE_BRIDGE_GIT_HASH=$(FOXGLOVE_BRIDGE_GIT_HASH) \
 		-t foxglove-bridge-ros1 .
 
 # The full build environment (sources, build trees, compilers); the test
@@ -14,6 +19,7 @@ docker-build-test-image:
 	docker build \
 		--target bridge \
 		--build-arg FOXGLOVE_BRIDGE_REMOTE_ACCESS=$(FOXGLOVE_BRIDGE_REMOTE_ACCESS) \
+		--build-arg FOXGLOVE_BRIDGE_GIT_HASH=$(FOXGLOVE_BRIDGE_GIT_HASH) \
 		-t foxglove-bridge-ros1-build .
 
 # Run the smoke suite in an already-built test image (CI builds the image

@@ -3,6 +3,7 @@
 #include <foxglove_bridge/ros1_foxglove_bridge.hpp>
 #include <foxglove_bridge/service_utils.hpp>
 #include <foxglove_bridge/utils.hpp>
+#include <foxglove_bridge/version.hpp>
 
 #include <resource_retriever/retriever.h>
 #include <ros/master.h>
@@ -76,7 +77,10 @@ Ros1FoxgloveBridge::Ros1FoxgloveBridge(ros::NodeHandle nh, ros::NodeHandle priva
     : _nh(std::move(nh))
     , _privateNh(std::move(privateNh)) {
   const char* rosDistro = std::getenv("ROS_DISTRO");
-  ROS_INFO("Starting foxglove_bridge (%s)", rosDistro ? rosDistro : "unknown");
+  ROS_INFO(
+    "Starting foxglove_bridge %s@%s (%s)", FOXGLOVE_BRIDGE_VERSION, FOXGLOVE_BRIDGE_GIT_HASH,
+    rosDistro ? rosDistro : "unknown"
+  );
 
   std::optional<std::map<std::string, std::string>> rosServerInfo;
   if (rosDistro && strlen(rosDistro) > 0) {
