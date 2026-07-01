@@ -141,12 +141,38 @@ set_target_properties(foxglove_cpp_shared PROPERTIES
   INSTALL_RPATH "$ORIGIN"
 )
 
+# Stamp the version and git hash into version.cpp so the bridge can identify
+# itself at startup. FOXGLOVE_BRIDGE_GIT_HASH may be passed on the cmake
+# command line — the docker build does this, since .dockerignore keeps .git
+# out of the build context. Otherwise it is captured from git at configure
+# time; a rebuild after new commits without re-running cmake keeps the stale
+# hash, which is close enough for triaging bug reports.
+if(NOT FOXGLOVE_BRIDGE_GIT_HASH)
+  find_program(GIT_SCM git DOC "Git version control")
+  if(GIT_SCM)
+    execute_process(
+      COMMAND ${GIT_SCM} describe --always --dirty --exclude=*
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      OUTPUT_VARIABLE FOXGLOVE_BRIDGE_GIT_HASH
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET
+    )
+  endif()
+endif()
+if(NOT FOXGLOVE_BRIDGE_GIT_HASH)
+  set(FOXGLOVE_BRIDGE_GIT_HASH "unknown")
+endif()
+set(FOXGLOVE_BRIDGE_VERSION "${CMAKE_PROJECT_VERSION}")
+configure_file(src/version.cpp.in src/version.cpp @ONLY)
+
 add_library(foxglove_bridge_lib SHARED
   src/capabilities.cpp
   src/param_interface.cpp
   src/ros1_foxglove_bridge.cpp
   src/service_utils.cpp
   src/transport_manager.cpp
+  # Generated:
+  ${CMAKE_CURRENT_BINARY_DIR}/src/version.cpp
 )
 target_include_directories(foxglove_bridge_lib
   PUBLIC

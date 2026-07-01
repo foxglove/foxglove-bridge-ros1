@@ -136,6 +136,9 @@ RUN . /opt/ros/noetic/setup.sh \
 COPY . /bridge_ws/src/foxglove_bridge
 
 ARG FOXGLOVE_BRIDGE_REMOTE_ACCESS=ON
+# .git is not in the build context, so the git hash for the bridge's startup
+# banner must come in from outside (the Makefile passes it).
+ARG FOXGLOVE_BRIDGE_GIT_HASH=
 
 RUN . /opt/ros/noetic/setup.sh \
     && cd /bridge_ws \
@@ -145,6 +148,7 @@ RUN . /opt/ros/noetic/setup.sh \
         --no-warn-unused-cli \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DFOXGLOVE_BRIDGE_REMOTE_ACCESS=${FOXGLOVE_BRIDGE_REMOTE_ACCESS} \
+        -DFOXGLOVE_BRIDGE_GIT_HASH=${FOXGLOVE_BRIDGE_GIT_HASH} \
         -DFETCHCONTENT_BASE_DIR=/sdk/fetchcontent
 
 COPY entrypoint.sh /entrypoint.sh
