@@ -148,7 +148,7 @@ Ros1FoxgloveBridge::Ros1FoxgloveBridge(ros::NodeHandle nh, ros::NodeHandle priva
   transportOptions.remoteAccess = _privateNh.param<bool>("remote_access", false);
   transportOptions.deviceToken = _privateNh.param<std::string>("device_token", "");
   transportOptions.foxgloveApiUrl = _privateNh.param<std::string>("foxglove_api_url", "");
-  transportOptions.sysinfo = _privateNh.param<bool>("sysinfo", false);
+  transportOptions.sysinfo = _privateNh.param<bool>("sysinfo", true);
   transportOptions.sysinfoTopic =
     _privateNh.param<std::string>("sysinfo_topic", "/foxglove_bridge/sysinfo");
   transportOptions.sysinfoRefreshInterval =

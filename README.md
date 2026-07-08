@@ -92,7 +92,7 @@ or via the launch file. `device_token` also falls back to the
 | `message_backlog_size` | int | `1024` | SDK per-client message backlog. |
 | `service_type_retrieval_timeout_ms` | int | `250` | Timeout for probing a service's type from its server. |
 | `service_call_timeout_ms` | int | `5000` | Deadline for a client-initiated service call (enforced at poll granularity). |
-| `sysinfo` | bool | `false` | Publish CPU/memory stats. |
+| `sysinfo` | bool | `true` | Publish CPU/memory stats. |
 | `sysinfo_topic` | string | `/foxglove_bridge/sysinfo` | Topic for sysinfo stats. |
 | `sysinfo_refresh_interval` | int | `500` | Sysinfo refresh interval, in ms. |
 | `debug` | bool | `false` | Enable SDK debug logging. |
