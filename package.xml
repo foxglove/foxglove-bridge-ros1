@@ -10,7 +10,7 @@
   </description>
   <maintainer email="ros-tooling@foxglove.dev">Foxglove</maintainer>
   <license>MIT</license>
-  <url type="website">https://github.com/foxglove/foxglove_bridge_ros1</url>
+  <url type="website">https://github.com/foxglove/foxglove-bridge-ros1</url>
 
   <buildtool_depend>catkin</buildtool_depend>
 
