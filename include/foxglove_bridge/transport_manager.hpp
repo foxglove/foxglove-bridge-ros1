@@ -127,7 +127,7 @@ struct TransportOptions {
   /// Empty string means the SDK default.
   std::string foxgloveApiUrl;
 
-  bool sysinfo = false;
+  bool sysinfo = true;
   std::string sysinfoTopic;
   std::chrono::milliseconds sysinfoRefreshInterval{500};
 };
