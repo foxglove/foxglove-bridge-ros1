@@ -70,32 +70,35 @@ to be open; the device then appears under Devices in the Foxglove app.
 
 All parameters are private (`~`); pass them with `_name:=value` to `rosrun`,
 or via the launch file. `device_token` also falls back to the
-`FOXGLOVE_DEVICE_TOKEN` environment variable.
+`FOXGLOVE_DEVICE_TOKEN` environment variable, which is preferred: a token
+passed with `_device_token:=` is stored on the ROS master's parameter server,
+where any node can read it, while the environment variable is only visible to
+the bridge process.
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `port` | int | `8765` | Local WebSocket server port. |
-| `address` | string | `0.0.0.0` | WebSocket server bind address. |
-| `tls` | bool | `false` | Serve the local WebSocket over TLS (wss). |
-| `certfile` | string | `""` | TLS certificate path (required when `tls` is true). |
-| `keyfile` | string | `""` | TLS private key path (required when `tls` is true). |
-| `remote_access` | bool | `false` | Connect to the Foxglove remote access gateway. Requires a remote-access build. |
-| `device_token` | string | `""` | Device token for remote access (else `FOXGLOVE_DEVICE_TOKEN`). |
-| `foxglove_api_url` | string | `""` | Override the Foxglove API URL (empty = SDK default). |
-| `capabilities` | string[] | `[assets, clientPublish, connectionGraph, services, parameters, parametersSubscribe]` | Advertised ws-protocol capabilities. |
-| `topic_whitelist` | string[] | `[".*"]` | Regexes of topics to bridge. |
-| `service_whitelist` | string[] | `[".*"]` | Regexes of services to bridge. |
-| `param_whitelist` | string[] | `[".*"]` | Regexes of parameters to expose. |
-| `asset_uri_allowlist` | string[] | (see below) | Regexes of `package://` asset URIs `fetchAsset` may serve. |
-| `max_update_ms` | int | `5000` | Upper bound of the master-poll backoff, in ms. |
-| `subscription_queue_length` | int | `10` | ROS subscriber/publisher queue size. |
-| `message_backlog_size` | int | `1024` | SDK per-client message backlog. |
-| `service_type_retrieval_timeout_ms` | int | `250` | Timeout for probing a service's type from its server. |
-| `service_call_timeout_ms` | int | `5000` | Deadline for a client-initiated service call (enforced at poll granularity). |
-| `sysinfo` | bool | `true` | Publish CPU/memory stats. |
-| `sysinfo_topic` | string | `/foxglove_bridge/sysinfo` | Topic for sysinfo stats. |
-| `sysinfo_refresh_interval` | int | `500` | Sysinfo refresh interval, in ms. |
-| `debug` | bool | `false` | Enable SDK debug logging. |
+| Parameter                           | Type     | Default                                                                               | Description                                                                                            |
+| ----------------------------------- | -------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `port`                              | int      | `8765`                                                                                | Local WebSocket server port.                                                                           |
+| `address`                           | string   | `0.0.0.0`                                                                             | WebSocket server bind address.                                                                         |
+| `tls`                               | bool     | `false`                                                                               | Serve the local WebSocket over TLS (wss).                                                              |
+| `certfile`                          | string   | `""`                                                                                  | TLS certificate path (required when `tls` is true).                                                    |
+| `keyfile`                           | string   | `""`                                                                                  | TLS private key path (required when `tls` is true).                                                    |
+| `remote_access`                     | bool     | `false`                                                                               | Connect to the Foxglove remote access gateway. Requires a remote-access build.                         |
+| `device_token`                      | string   | `""`                                                                                  | Device token for remote access. Falls back to `FOXGLOVE_DEVICE_TOKEN`, which is preferred (see above). |
+| `foxglove_api_url`                  | string   | `""`                                                                                  | Override the Foxglove API URL (empty = SDK default).                                                   |
+| `capabilities`                      | string[] | `[assets, clientPublish, connectionGraph, services, parameters, parametersSubscribe]` | Advertised ws-protocol capabilities.                                                                   |
+| `topic_whitelist`                   | string[] | `[".*"]`                                                                              | Regexes of topics to bridge.                                                                           |
+| `service_whitelist`                 | string[] | `[".*"]`                                                                              | Regexes of services to bridge.                                                                         |
+| `param_whitelist`                   | string[] | `[".*"]`                                                                              | Regexes of parameters to expose.                                                                       |
+| `asset_uri_allowlist`               | string[] | (see below)                                                                           | Regexes of `package://` asset URIs `fetchAsset` may serve.                                             |
+| `max_update_ms`                     | int      | `5000`                                                                                | Upper bound of the master-poll backoff, in ms.                                                         |
+| `subscription_queue_length`         | int      | `10`                                                                                  | ROS subscriber/publisher queue size.                                                                   |
+| `message_backlog_size`              | int      | `1024`                                                                                | SDK per-client message backlog.                                                                        |
+| `service_type_retrieval_timeout_ms` | int      | `250`                                                                                 | Timeout for probing a service's type from its server.                                                  |
+| `service_call_timeout_ms`           | int      | `5000`                                                                                | Deadline for a client-initiated service call (enforced at poll granularity).                           |
+| `sysinfo`                           | bool     | `true`                                                                                | Publish CPU/memory stats.                                                                              |
+| `sysinfo_topic`                     | string   | `/foxglove_bridge/sysinfo`                                                            | Topic for sysinfo stats.                                                                               |
+| `sysinfo_refresh_interval`          | int      | `500`                                                                                 | Sysinfo refresh interval, in ms.                                                                       |
+| `debug`                             | bool     | `false`                                                                               | Enable SDK debug logging.                                                                              |
 
 The bridge also reads the global `/use_sim_time` parameter at startup: when
 set, it advertises the Time capability and broadcasts `/clock` to clients.
@@ -108,12 +111,12 @@ png, stl, tif, tiff, urdf, webp, xacro); see the source for the exact regex.
 
 Messages pass through the bridge as raw bytes, so any custom type flows to
 clients without rebuilding the bridge. But to advertise a channel with a
-schema that clients can *decode*, the bridge must find the type's `.msg`
+schema that clients can _decode_, the bridge must find the type's `.msg`
 files in a package on its own `ROS_PACKAGE_PATH` (it does not learn
 definitions from publishers). Topics whose type it cannot find are
 advertised without a schema — the data arrives but the Foxglove app cannot
 decode it — and the bridge logs `Could not find definition for type <X>`.
-Publishing *into* ROS (client advertise) and calling services require the
+Publishing _into_ ROS (client advertise) and calling services require the
 definition and fail without it.
 
 Only the `package.xml` and `msg/` (and `srv/`) files of the message package
@@ -128,8 +131,8 @@ starting it. When running the container, mount them like any other package
 
 ### Assets in a sidecar deployment
 
-`fetchAsset` resolves `package://` URIs with resource_retriever against the
-*bridge container's* filesystem, not the robot's. When the bridge runs as a
+`fetchAsset` resolves `package://` URIs with resource*retriever against the
+\_bridge container's* filesystem, not the robot's. When the bridge runs as a
 sidecar next to an existing robot, mount the robot's description packages
 (URDF meshes etc.) into the container under `/opt/foxglove/share`, which is
 already on the bridge's `ROS_PACKAGE_PATH`:
