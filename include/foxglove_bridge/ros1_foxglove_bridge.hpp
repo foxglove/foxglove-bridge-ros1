@@ -1,6 +1,7 @@
 #pragma once
 
 #include <foxglove/foxglove.hpp>
+#include <foxglove/point_cloud_compression.hpp>
 #include <foxglove_bridge/param_interface.hpp>
 #include <foxglove_bridge/transport_manager.hpp>
 #include <foxglove_bridge/types.hpp>
@@ -50,6 +51,10 @@ public:
   void fetchAsset(std::string_view uri, foxglove::FetchAssetResponder&& responder) override;
 #ifdef FOXGLOVE_REMOTE_ACCESS
   foxglove::QosProfile classifyRemoteAccessQos(const foxglove::ChannelDescriptor& channel) override;
+  bool suppressRemoteAccessVideoTranscode(const foxglove::ChannelDescriptor& channel) override;
+  foxglove::PointCloudCompression selectRemoteAccessPointCloudCompression(
+    const foxglove::ChannelDescriptor& channel
+  ) override;
   void onGatewayConnectionStatusChanged(foxglove::RemoteAccessConnectionStatus status) override;
 #endif
 
@@ -218,6 +223,13 @@ private:
   std::vector<std::regex> _topicWhitelistPatterns;
   std::vector<std::regex> _serviceWhitelistPatterns;
   std::vector<std::regex> _assetUriAllowlistPatterns;
+  // Topics delivered as data over remote access instead of being transcoded
+  // to video. Written only in the constructor, before the gateway starts.
+  std::vector<std::regex> _videoTranscodeTopicDenyPatterns;
+  // Point cloud compression policy for remote access; likewise written only
+  // in the constructor.
+  std::vector<std::regex> _pointCloudCompressionTopicDenyPatterns;
+  foxglove::DracoEncodeOptions _pointCloudCompressionOptions;
 
   // Forwards /clock to clients (Time capability) when use_sim_time is set.
   ros::Subscriber _clockSubscription;

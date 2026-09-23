@@ -1,6 +1,8 @@
 #include <foxglove_bridge/capabilities.hpp>
 #include <foxglove_bridge/transport_manager.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -30,6 +32,29 @@ std::vector<std::byte> readFile(const std::string& filepath) {
 }
 
 #ifdef FOXGLOVE_REMOTE_ACCESS
+// Parses a preferred video encoder backend name (case-insensitively). Returns
+// std::nullopt for an unrecognized value so the caller can warn and leave the
+// SDK default in place.
+std::optional<foxglove::VideoEncoderBackend> parseVideoEncoderBackend(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  if (value == "auto") {
+    return foxglove::VideoEncoderBackend::Auto;
+  } else if (value == "software") {
+    return foxglove::VideoEncoderBackend::Software;
+  } else if (value == "hardware") {
+    return foxglove::VideoEncoderBackend::Hardware;
+  } else if (value == "nvenc") {
+    return foxglove::VideoEncoderBackend::Nvenc;
+  } else if (value == "vaapi") {
+    return foxglove::VideoEncoderBackend::Vaapi;
+  } else if (value == "videotoolbox") {
+    return foxglove::VideoEncoderBackend::VideoToolbox;
+  }
+  return std::nullopt;
+}
+
 ClientChannelInfo toClientChannelInfo(const foxglove::ChannelDescriptor& channel) {
   ClientChannelInfo info;
   info.id = channel.id();
@@ -247,15 +272,30 @@ void TransportManager::createGateway(
   gatewayOptions.supported_encodings = options.supportedEncodings;
   gatewayOptions.server_info = serverInfo;
   gatewayOptions.message_backlog_size = options.messageBacklogSize;
+  gatewayOptions.max_data_track_message_size = options.maxDataTrackMessageSize;
 
   if (!options.foxgloveApiUrl.empty()) {
     gatewayOptions.foxglove_api_url = options.foxgloveApiUrl;
   }
 
+  if (const auto backend = parseVideoEncoderBackend(options.videoEncoder)) {
+    gatewayOptions.video_encoder = *backend;
+  } else {
+    _log.log(
+      BridgeLogLevel::Warn,
+      "Ignoring invalid video_encoder value \"%s\"; expected one of: auto, software, "
+      "hardware, nvenc, vaapi, videotoolbox",
+      options.videoEncoder.c_str()
+    );
+  }
+
   gatewayOptions.capabilities = toGatewayCapabilities(_capabilities);
 
   // Exceptions from gateway-side delegate callbacks are caught and logged
-  // here; the gateway has no per-request error reporting path for them.
+  // here; the gateway has no per-request error reporting path for them. (The
+  // SDK itself catches exceptions from qos_classifier,
+  // suppress_video_transcode, and point_cloud_compression, falling back to
+  // its defaults.)
   gatewayOptions.callbacks.onConnectionStatusChanged =
     [this](foxglove::RemoteAccessConnectionStatus status) {
       _delegate.onGatewayConnectionStatusChanged(status);
@@ -282,6 +322,12 @@ void TransportManager::createGateway(
     };
   gatewayOptions.qos_classifier = [this](const foxglove::ChannelDescriptor& channel) {
     return _delegate.classifyRemoteAccessQos(channel);
+  };
+  gatewayOptions.suppress_video_transcode = [this](const foxglove::ChannelDescriptor& channel) {
+    return _delegate.suppressRemoteAccessVideoTranscode(channel);
+  };
+  gatewayOptions.point_cloud_compression = [this](const foxglove::ChannelDescriptor& channel) {
+    return _delegate.selectRemoteAccessPointCloudCompression(channel);
   };
 
   if (hasCapability(foxglove::WebSocketServerCapabilities::ClientPublish)) {

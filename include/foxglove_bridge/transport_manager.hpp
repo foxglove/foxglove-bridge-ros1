@@ -78,6 +78,19 @@ public:
     (void)channel;
     return foxglove::QosProfile{};
   }
+  /// Return true to deliver a video-capable remote access channel as data
+  /// instead of transcoding it to video.
+  virtual bool suppressRemoteAccessVideoTranscode(const foxglove::ChannelDescriptor& channel) {
+    (void)channel;
+    return false;
+  }
+  /// Point cloud compression policy for a compressible remote access channel.
+  virtual foxglove::PointCloudCompression selectRemoteAccessPointCloudCompression(
+    const foxglove::ChannelDescriptor& channel
+  ) {
+    (void)channel;
+    return foxglove::PointCloudCompression{};
+  }
   virtual void onGatewayConnectionStatusChanged(foxglove::RemoteAccessConnectionStatus status) {
     (void)status;
   }
@@ -126,6 +139,13 @@ struct TransportOptions {
   std::string deviceToken;
   /// Empty string means the SDK default.
   std::string foxgloveApiUrl;
+  /// Preferred video encoder backend name (auto, software, hardware, nvenc,
+  /// vaapi, videotoolbox). "auto" lets the SDK choose and honors the
+  /// FOXGLOVE_VIDEO_ENCODER environment variable.
+  std::string videoEncoder = "auto";
+  /// Maximum lossy data-track message size, in bytes; nullopt means the SDK
+  /// default.
+  std::optional<size_t> maxDataTrackMessageSize;
 
   bool sysinfo = true;
   std::string sysinfoTopic;
