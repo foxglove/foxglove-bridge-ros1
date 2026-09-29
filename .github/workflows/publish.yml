@@ -12,7 +12,37 @@ permissions:
   id-token: write
 
 jobs:
+  # A release tag must match the version stamped into the bridge's startup
+  # banner, which comes from CMakeLists.txt; package.xml must agree with it.
+  check-version:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check tag against CMakeLists.txt and package.xml
+        run: |
+          set -euo pipefail
+
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CMAKE_VERSION=$(sed -nE 's/^project\(foxglove_bridge .*VERSION ([0-9.]+)\).*/\1/p' CMakeLists.txt)
+          PACKAGE_VERSION=$(sed -nE 's|.*<version>(.*)</version>.*|\1|p' package.xml)
+          echo "tag: ${TAG_VERSION}, CMakeLists.txt: ${CMAKE_VERSION}, package.xml: ${PACKAGE_VERSION}"
+
+          if [[ "${TAG_VERSION}" != "${CMAKE_VERSION}" || "${TAG_VERSION}" != "${PACKAGE_VERSION}" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match CMakeLists.txt (${CMAKE_VERSION}) and package.xml (${PACKAGE_VERSION})"
+            exit 1
+          fi
+
+  # CI only runs on main and PRs, so a tag may point at an untested commit.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   build-and-push:
+    needs: [check-version, ci]
+    # check-version is skipped on manual dispatch; without always() that skip
+    # would cascade and skip this job too.
+    if: ${{ always() && needs.ci.result == 'success' && (needs.check-version.result == 'success' || needs.check-version.result == 'skipped') }}
     runs-on: ubuntu-latest
     # Stage 1 of the Dockerfile builds Noetic from source, which dominates the
     # runtime on a cold cache; cap the job well below the 6-hour default so a
@@ -24,9 +54,9 @@ jobs:
       DOCKER_REPO: us-central1-docker.pkg.dev/foxglove-images/images/foxglove_bridge
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Auth gcloud
         uses: google-github-actions/auth@v3
@@ -61,7 +91,7 @@ jobs:
         run: echo "hash=$(git describe --always --dirty --exclude='*')" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
