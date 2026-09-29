@@ -184,6 +184,9 @@ Ros1FoxgloveBridge::Ros1FoxgloveBridge(ros::NodeHandle nh, ros::NodeHandle priva
     "video_transcode_topic_denylist", {".*/compressedDepth"}
   );
   _videoTranscodeTopicDenyPatterns = parseRegexPatterns(videoTranscodeTopicDenylist);
+  const auto reliableTopics =
+    _privateNh.param<std::vector<std::string>>("remote_access_reliable_topics", {});
+  _reliableTopicPatterns = parseRegexPatterns(reliableTopics);
   const auto pointCloudCompressionTopicDenylist =
     _privateNh.param<std::vector<std::string>>("point_cloud_compression_topic_denylist", {});
   _pointCloudCompressionTopicDenyPatterns = parseRegexPatterns(pointCloudCompressionTopicDenylist);
@@ -1148,13 +1151,20 @@ foxglove::QosProfile Ros1FoxgloveBridge::classifyRemoteAccessQos(
   // data track. ROS 1 only reveals latching via per-connection headers, so
   // this can only classify based on messages seen so far: a topic is treated
   // as latched once a latched publisher has been observed on it. Before the
-  // first message arrives the default (lossy) profile applies.
+  // first message arrives the default (lossy) profile applies. Since the SDK
+  // classifies a channel once, when advertising it to a session, that is
+  // usually too late; remote_access_reliable_topics lets users force the
+  // Reliable profile for such topics.
   //
   // NOTE: the SDK invokes this callback from inside the gateway session, which
   // can be waited on by channel.log() calls made while _subscriptionsMutex is
   // held — taking _subscriptionsMutex here deadlocks the bridge. Only the
   // dedicated _latchedChannelsMutex may be used.
   foxglove::QosProfile profile;
+  if (matchesRegex(std::string(channel.topic()), _reliableTopicPatterns)) {
+    profile.reliability = foxglove::Reliability::Reliable;
+    return profile;
+  }
   std::lock_guard<std::mutex> lock(_latchedChannelsMutex);
   if (_latchedChannels.find(channel.id()) != _latchedChannels.end()) {
     profile.reliability = foxglove::Reliability::Reliable;

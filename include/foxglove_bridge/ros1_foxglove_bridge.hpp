@@ -226,6 +226,9 @@ private:
   // Topics delivered as data over remote access instead of being transcoded
   // to video. Written only in the constructor, before the gateway starts.
   std::vector<std::regex> _videoTranscodeTopicDenyPatterns;
+  // Topics always classified Reliable over remote access, for large latched
+  // topics whose latching isn't observed before the gateway classifies them.
+  std::vector<std::regex> _reliableTopicPatterns;
   // Point cloud compression policy for remote access; likewise written only
   // in the constructor.
   std::vector<std::regex> _pointCloudCompressionTopicDenyPatterns;

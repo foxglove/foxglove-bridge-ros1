@@ -87,6 +87,7 @@ the bridge process.
 | `foxglove_api_url`                          | string   | `""`                                                                                  | Override the Foxglove API URL (empty = SDK default).                                                                                                                                                                                               |
 | `video_encoder`                             | string   | `auto`                                                                                | Remote access only. Preferred video encoder: `auto`, `software`, `hardware`, `nvenc`, `vaapi`, or `videotoolbox`; falls back to another encoder if unavailable. `auto` honors `FOXGLOVE_VIDEO_ENCODER`. Invalid values are ignored with a warning. |
 | `max_data_track_message_size`               | int      | `102400`                                                                              | Remote access only. Max size in bytes of a lossy data-track message; larger ones are dropped (see below). Must be an integer >= 1200; validated at startup even without remote access.                                                             |
+| `remote_access_reliable_topics`             | string[] | `[]`                                                                                  | Remote access only. Regexes of topics always delivered reliably, instead of on a lossy data track (see below).                                                                                                                                     |
 | `video_transcode_topic_denylist`            | string[] | `[".*/compressedDepth"]`                                                              | Remote access only. Regexes of image topics delivered as data instead of being transcoded to video (e.g. `compressed_depth_image_transport` topics).                                                                                               |
 | `point_cloud_compression_topic_denylist`    | string[] | `[]`                                                                                  | Remote access only. Regexes of point cloud topics delivered unmodified instead of being Draco-compressed (see below).                                                                                                                              |
 | `point_cloud_compression_quantization_bits` | int      | `12`                                                                                  | Remote access only. Quantization bits for compressed point cloud positions and float32 fields, from 1 to 30. Fewer bits compress smaller but coarser. Validated at startup even without remote access.                                             |
@@ -110,9 +111,15 @@ Over remote access, messages on lossy topics larger than
 `max_data_track_message_size` are dropped, with a throttled warning, so one
 high-bandwidth topic cannot starve the others. Topics excluded by
 `video_transcode_topic_denylist` or `point_cloud_compression_topic_denylist`
-are delivered as-is, and are subject to this limit too. Latched topics are
-delivered reliably, and are exempt, but only once a latched message has been
-observed (see Known limitations).
+are delivered as-is, and are subject to this limit too.
+
+Topics matching `remote_access_reliable_topics` are delivered reliably
+instead, and are never dropped. Use it for large, infrequent topics such as a
+latched `/map`: latched topics are delivered reliably automatically, but only
+once the bridge has observed a latched message (see Known limitations), which
+is usually too late. Point clouds on reliable topics are not compressed, and
+reliable delivery is not supported for image topics that are transcoded to
+video (the SDK delivers them lossily and logs a warning).
 
 Over remote access, `sensor_msgs/PointCloud2` topics are transparently
 compressed with Draco, which is lossy: float64 fields are narrowed to
@@ -234,4 +241,5 @@ both the SDK and the bridge are picked up without rebuilding the image.
 
 - Remote-access QoS classification for latched topics is observational: a
   topic is only classified Reliable after a latched publisher has been seen
-  (ROS 1 reveals latching only in per-connection headers).
+  (ROS 1 reveals latching only in per-connection headers). Add such topics to
+  `remote_access_reliable_topics` to classify them Reliable from the start.
