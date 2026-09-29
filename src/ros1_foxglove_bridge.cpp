@@ -16,6 +16,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <limits>
+#include <optional>
+#include <stdexcept>
 #include <unordered_set>
 
 namespace foxglove_bridge {
@@ -25,6 +28,8 @@ namespace {
 constexpr char ROS1_MESSAGE_ENCODING[] = "ros1";
 constexpr char ROS1_SCHEMA_ENCODING[] = "ros1msg";
 constexpr size_t MIN_UPDATE_PERIOD_MS = 100;
+// One data-channel packet; the SDK rejects smaller data-track limits.
+constexpr int MIN_DATA_TRACK_MESSAGE_SIZE = 1200;
 
 std::vector<std::regex> parseRegexPatterns(const std::vector<std::string>& strings) {
   std::vector<std::regex> patterns;
@@ -63,6 +68,67 @@ std::string percentDecode(const std::string& in) {
   return out;
 }
 
+const char* rpcTypeName(XmlRpc::XmlRpcValue::Type type) {
+  switch (type) {
+    case XmlRpc::XmlRpcValue::TypeInvalid:
+      return "invalid";
+    case XmlRpc::XmlRpcValue::TypeBoolean:
+      return "boolean";
+    case XmlRpc::XmlRpcValue::TypeInt:
+      return "integer";
+    case XmlRpc::XmlRpcValue::TypeDouble:
+      return "double";
+    case XmlRpc::XmlRpcValue::TypeString:
+      return "string";
+    case XmlRpc::XmlRpcValue::TypeDateTime:
+      return "datetime";
+    case XmlRpc::XmlRpcValue::TypeBase64:
+      return "base64";
+    case XmlRpc::XmlRpcValue::TypeArray:
+      return "array";
+    case XmlRpc::XmlRpcValue::TypeStruct:
+      return "struct";
+  }
+  return "unknown";
+}
+
+// Reads an optional integer parameter, failing fast (ROS_FATAL + throw) if it
+// is set but is not an integer in [min, max]. ROS 1 has no declarative range
+// validation, and the SDK reports bad values opaquely or not at all.
+std::optional<int> getIntParamInRange(
+  const ros::NodeHandle& nh, const std::string& name, int min, int max
+) {
+  XmlRpc::XmlRpcValue param;
+  if (!nh.getParam(name, param)) {
+    return std::nullopt;
+  }
+  if (param.getType() != XmlRpc::XmlRpcValue::TypeInt) {
+    ROS_FATAL("%s must be an integer (got %s)", name.c_str(), rpcTypeName(param.getType()));
+    throw std::invalid_argument("invalid " + name);
+  }
+  const int value = param;
+  if (value < min || value > max) {
+    ROS_FATAL("%s must be between %d and %d (got %d)", name.c_str(), min, max, value);
+    throw std::invalid_argument("invalid " + name);
+  }
+  return value;
+}
+
+// Parses a Draco point cloud encoding method name (case-insensitively).
+// Returns std::nullopt for an unrecognized value so the caller can warn and
+// leave the SDK default in place.
+std::optional<foxglove::DracoMethod> parseDracoMethod(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  if (value == "kd-tree") {
+    return foxglove::DracoMethod::KdTree;
+  } else if (value == "sequential") {
+    return foxglove::DracoMethod::Sequential;
+  }
+  return std::nullopt;
+}
+
 std::unordered_set<std::string> rpcValueToStringSet(const XmlRpc::XmlRpcValue& v) {
   std::unordered_set<std::string> set;
   for (int i = 0; i < v.size(); ++i) {
@@ -76,6 +142,12 @@ std::unordered_set<std::string> rpcValueToStringSet(const XmlRpc::XmlRpcValue& v
 Ros1FoxgloveBridge::Ros1FoxgloveBridge(ros::NodeHandle nh, ros::NodeHandle privateNh)
     : _nh(std::move(nh))
     , _privateNh(std::move(privateNh)) {
+  // Identify bridge connections as foxglove-bridge-ros1/<version> in SDK
+  // library headers. Must precede creating any SDK transport.
+  foxglove::internal::setLibraryIdentifierPrefix(
+    std::string("foxglove-bridge-ros1/") + FOXGLOVE_BRIDGE_VERSION
+  );
+
   const char* rosDistro = std::getenv("ROS_DISTRO");
   ROS_INFO(
     "Starting foxglove_bridge %s@%s (%s)",
@@ -106,6 +178,39 @@ Ros1FoxgloveBridge::Ros1FoxgloveBridge(ros::NodeHandle nh, ros::NodeHandle priva
      ")*[-\\w%.]+\\.(?:dae|fbx|glb|gltf|jpeg|jpg|mtl|obj|png|stl|tif|tiff|urdf|webp|xacro)$"}
   );
   _assetUriAllowlistPatterns = parseRegexPatterns(assetUriAllowlist);
+  // Matches the compressed_depth_image_transport "/compressedDepth" suffix:
+  // depth maps must not pass through lossy video.
+  const auto videoTranscodeTopicDenylist = _privateNh.param<std::vector<std::string>>(
+    "video_transcode_topic_denylist", {".*/compressedDepth"}
+  );
+  _videoTranscodeTopicDenyPatterns = parseRegexPatterns(videoTranscodeTopicDenylist);
+  const auto reliableTopics =
+    _privateNh.param<std::vector<std::string>>("remote_access_reliable_topics", {});
+  _reliableTopicPatterns = parseRegexPatterns(reliableTopics);
+  const auto pointCloudCompressionTopicDenylist =
+    _privateNh.param<std::vector<std::string>>("point_cloud_compression_topic_denylist", {});
+  _pointCloudCompressionTopicDenyPatterns = parseRegexPatterns(pointCloudCompressionTopicDenylist);
+  // Validated here: the SDK only repairs out-of-range values per channel
+  // (clamping, or disabling compression for 0), with a log warning.
+  if (const auto quantizationBits = getIntParamInRange(
+        _privateNh,
+        "point_cloud_compression_quantization_bits",
+        1,
+        foxglove::DracoEncodeOptions::kMaxQuantizationBits
+      )) {
+    _pointCloudCompressionOptions.quantization_bits = static_cast<uint8_t>(*quantizationBits);
+  }
+  const auto pointCloudCompressionMethod =
+    _privateNh.param<std::string>("point_cloud_compression_method", "kd-tree");
+  if (const auto method = parseDracoMethod(pointCloudCompressionMethod)) {
+    _pointCloudCompressionOptions.method = *method;
+  } else {
+    ROS_WARN(
+      "Ignoring invalid point_cloud_compression_method value \"%s\"; expected one of: "
+      "kd-tree, sequential",
+      pointCloudCompressionMethod.c_str()
+    );
+  }
   const auto capabilities = _privateNh.param<std::vector<std::string>>(
     "capabilities",
     {"assets", "clientPublish", "connectionGraph", "services", "parameters", "parametersSubscribe"}
@@ -148,6 +253,17 @@ Ros1FoxgloveBridge::Ros1FoxgloveBridge(ros::NodeHandle nh, ros::NodeHandle priva
   transportOptions.remoteAccess = _privateNh.param<bool>("remote_access", false);
   transportOptions.deviceToken = _privateNh.param<std::string>("device_token", "");
   transportOptions.foxgloveApiUrl = _privateNh.param<std::string>("foxglove_api_url", "");
+  transportOptions.videoEncoder = _privateNh.param<std::string>("video_encoder", "auto");
+  // Validated here (unset means the SDK default): the SDK treats 0 as "use
+  // the default" and fails gateway startup with an opaque error below 1200.
+  if (const auto maxDataTrackMessageSize = getIntParamInRange(
+        _privateNh,
+        "max_data_track_message_size",
+        MIN_DATA_TRACK_MESSAGE_SIZE,
+        std::numeric_limits<int>::max()
+      )) {
+    transportOptions.maxDataTrackMessageSize = static_cast<size_t>(*maxDataTrackMessageSize);
+  }
   transportOptions.sysinfo = _privateNh.param<bool>("sysinfo", true);
   transportOptions.sysinfoTopic =
     _privateNh.param<std::string>("sysinfo_topic", "/foxglove_bridge/sysinfo");
@@ -269,7 +385,7 @@ void Ros1FoxgloveBridge::pollThread() {
 
           for (int i = 0; i < publishersXmlRpc.size(); ++i) {
             const std::string& name = publishersXmlRpc[i][0];
-            if (isWhitelisted(name, _topicWhitelistPatterns)) {
+            if (matchesRegex(name, _topicWhitelistPatterns)) {
               const auto nodes = rpcValueToStringSet(publishersXmlRpc[i][1]);
               connectionGraph.setPublishedTopic(
                 name, std::vector<std::string>(nodes.begin(), nodes.end())
@@ -278,7 +394,7 @@ void Ros1FoxgloveBridge::pollThread() {
           }
           for (int i = 0; i < subscribersXmlRpc.size(); ++i) {
             const std::string& name = subscribersXmlRpc[i][0];
-            if (isWhitelisted(name, _topicWhitelistPatterns)) {
+            if (matchesRegex(name, _topicWhitelistPatterns)) {
               const auto nodes = rpcValueToStringSet(subscribersXmlRpc[i][1]);
               connectionGraph.setSubscribedTopic(
                 name, std::vector<std::string>(nodes.begin(), nodes.end())
@@ -287,7 +403,7 @@ void Ros1FoxgloveBridge::pollThread() {
           }
           for (int i = 0; i < servicesXmlRpc.size(); ++i) {
             const std::string& name = servicesXmlRpc[i][0];
-            if (isWhitelisted(name, _serviceWhitelistPatterns)) {
+            if (matchesRegex(name, _serviceWhitelistPatterns)) {
               serviceNames.push_back(name);
               const auto nodes = rpcValueToStringSet(servicesXmlRpc[i][1]);
               connectionGraph.setAdvertisedService(
@@ -353,7 +469,7 @@ void Ros1FoxgloveBridge::updateAdvertisedTopics(const std::vector<TopicAndDataty
   std::unordered_set<TopicAndDatatype, PairHash> latestTopics;
   latestTopics.reserve(topics.size());
   for (const auto& topicAndDatatype : topics) {
-    if (isWhitelisted(topicAndDatatype.first, _topicWhitelistPatterns)) {
+    if (matchesRegex(topicAndDatatype.first, _topicWhitelistPatterns)) {
       latestTopics.insert(topicAndDatatype);
     }
   }
@@ -866,7 +982,7 @@ void Ros1FoxgloveBridge::fetchAsset(
     // decodes escapes, so a literal-only check would let `%2e%2e` through and
     // resolve to "..".
     if (percentDecode(uri).find("..") != std::string::npos ||
-        !isWhitelisted(uri, _assetUriAllowlistPatterns)) {
+        !matchesRegex(uri, _assetUriAllowlistPatterns)) {
       throw std::runtime_error("Asset URI not allowed: " + uri);
     }
 
@@ -1035,18 +1151,47 @@ foxglove::QosProfile Ros1FoxgloveBridge::classifyRemoteAccessQos(
   // data track. ROS 1 only reveals latching via per-connection headers, so
   // this can only classify based on messages seen so far: a topic is treated
   // as latched once a latched publisher has been observed on it. Before the
-  // first message arrives the default (lossy) profile applies.
+  // first message arrives the default (lossy) profile applies. Since the SDK
+  // classifies a channel once, when advertising it to a session, that is
+  // usually too late; remote_access_reliable_topics lets users force the
+  // Reliable profile for such topics.
   //
   // NOTE: the SDK invokes this callback from inside the gateway session, which
   // can be waited on by channel.log() calls made while _subscriptionsMutex is
   // held — taking _subscriptionsMutex here deadlocks the bridge. Only the
   // dedicated _latchedChannelsMutex may be used.
   foxglove::QosProfile profile;
+  if (matchesRegex(std::string(channel.topic()), _reliableTopicPatterns)) {
+    profile.reliability = foxglove::Reliability::Reliable;
+    return profile;
+  }
   std::lock_guard<std::mutex> lock(_latchedChannelsMutex);
   if (_latchedChannels.find(channel.id()) != _latchedChannels.end()) {
     profile.reliability = foxglove::Reliability::Reliable;
   }
   return profile;
+}
+
+bool Ros1FoxgloveBridge::suppressRemoteAccessVideoTranscode(
+  const foxglove::ChannelDescriptor& channel
+) {
+  const std::string topic(channel.topic());
+  if (!matchesRegex(topic, _videoTranscodeTopicDenyPatterns)) {
+    return false;
+  }
+  ROS_INFO("Delivering topic \"%s\" as data (no video transcoding)", topic.c_str());
+  return true;
+}
+
+foxglove::PointCloudCompression Ros1FoxgloveBridge::selectRemoteAccessPointCloudCompression(
+  const foxglove::ChannelDescriptor& channel
+) {
+  const std::string topic(channel.topic());
+  if (!matchesRegex(topic, _pointCloudCompressionTopicDenyPatterns)) {
+    return foxglove::PointCloudCompression::withDraco(_pointCloudCompressionOptions);
+  }
+  ROS_INFO("Delivering topic \"%s\" unmodified (no point cloud compression)", topic.c_str());
+  return foxglove::PointCloudCompression::disabled();
 }
 
 void Ros1FoxgloveBridge::onGatewayConnectionStatusChanged(

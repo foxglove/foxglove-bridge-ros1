@@ -182,7 +182,7 @@ ParameterList Ros1ParameterInterface::getParams(
       // clients, even if explicitly requested and regardless of the whitelist.
       continue;
     }
-    if (!isWhitelisted(name, _paramWhitelistPatterns)) {
+    if (!matchesRegex(name, _paramWhitelistPatterns)) {
       if (!allParametersRequested) {
         ROS_ERROR("Parameter '%s' is not on the parameter whitelist", name.c_str());
       }
@@ -216,7 +216,7 @@ void Ros1ParameterInterface::setParams(
       // whitelist.
       continue;
     }
-    if (!isWhitelisted(name, _paramWhitelistPatterns)) {
+    if (!matchesRegex(name, _paramWhitelistPatterns)) {
       ROS_ERROR("Parameter '%s' is not on the parameter whitelist", name.c_str());
       continue;
     }
@@ -276,7 +276,7 @@ void Ros1ParameterInterface::subscribeParams(const std::vector<std::string_view>
       // don't let clients subscribe to the bridge's own parameters.
       continue;
     }
-    if (!isWhitelisted(name, _paramWhitelistPatterns)) {
+    if (!matchesRegex(name, _paramWhitelistPatterns)) {
       ROS_ERROR("Parameter '%s' is not on the parameter whitelist", name.c_str());
       continue;
     }

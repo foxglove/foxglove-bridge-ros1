@@ -98,14 +98,14 @@ catkin_package()
 # FETCHCONTENT_SOURCE_DIR_FOXGLOVE_SDK (cmake's standard FetchContent override)
 # to point at a `make build-cpp-dist`-produced `cpp/dist` tree — the
 # Makefile's docker-test-local-sdk target does this for you (see README.md).
-set(FOXGLOVE_SDK_VERSION "0.25.1")
+set(FOXGLOVE_SDK_VERSION "0.28.0")
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
   set(FOXGLOVE_SDK_PLATFORM "aarch64-unknown-linux-gnu")
-  set(FOXGLOVE_SDK_SHA "c70e35c78f0e37f3ba8d0251cd31f353bb10b1fd106200dc6c5f409ed4df1918")
+  set(FOXGLOVE_SDK_SHA "9c6efdf3bbc491be3fc5f33a6e2467469786ccb3465554c793a59ee2676c9b57")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
   set(FOXGLOVE_SDK_PLATFORM "x86_64-unknown-linux-gnu")
-  set(FOXGLOVE_SDK_SHA "0b9d348df3a8e98d2c2cee2360cc9f52e83bb3445044debd771d1b46dc358be4")
+  set(FOXGLOVE_SDK_SHA "1a0d8e03a885f01ae7cfb08dc9076090ba2cf8a15b7f46dda11451e2e2758978")
 else()
   message(FATAL_ERROR "Unsupported platform/architecture combination: ${CMAKE_SYSTEM_PROCESSOR}-${CMAKE_SYSTEM_NAME}")
 endif()

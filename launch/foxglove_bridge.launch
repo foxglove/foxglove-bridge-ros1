@@ -7,6 +7,10 @@
   <arg name="remote_access" default="false" />
   <arg name="device_token" default="" />
   <arg name="foxglove_api_url" default="" />
+  <arg name="video_encoder" default="auto" />
+  <arg name="max_data_track_message_size" default="102400" />
+  <arg name="point_cloud_compression_quantization_bits" default="12" />
+  <arg name="point_cloud_compression_method" default="kd-tree" />
 
   <node pkg="foxglove_bridge" type="foxglove_bridge" name="foxglove_bridge" output="screen">
     <param name="port" value="$(arg port)" />
@@ -17,5 +21,9 @@
     <param name="remote_access" value="$(arg remote_access)" />
     <param name="device_token" value="$(arg device_token)" />
     <param name="foxglove_api_url" value="$(arg foxglove_api_url)" />
+    <param name="video_encoder" value="$(arg video_encoder)" />
+    <param name="max_data_track_message_size" value="$(arg max_data_track_message_size)" />
+    <param name="point_cloud_compression_quantization_bits" value="$(arg point_cloud_compression_quantization_bits)" />
+    <param name="point_cloud_compression_method" value="$(arg point_cloud_compression_method)" />
   </node>
 </launch>
