@@ -190,8 +190,8 @@ Ros1FoxgloveBridge::Ros1FoxgloveBridge(ros::NodeHandle nh, ros::NodeHandle priva
   const auto pointCloudCompressionTopicDenylist =
     _privateNh.param<std::vector<std::string>>("point_cloud_compression_topic_denylist", {});
   _pointCloudCompressionTopicDenyPatterns = parseRegexPatterns(pointCloudCompressionTopicDenylist);
-  // Validated here: the SDK silently repairs out-of-range values (clamping,
-  // or disabling compression for 0).
+  // Validated here: the SDK only repairs out-of-range values per channel
+  // (clamping, or disabling compression for 0), with a log warning.
   if (const auto quantizationBits = getIntParamInRange(
         _privateNh,
         "point_cloud_compression_quantization_bits",
