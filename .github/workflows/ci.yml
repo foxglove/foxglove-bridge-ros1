@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Lets publish.yml gate an image push on lint and the smoke suite.
+  workflow_call: {}
 
 # Superseded runs are pointless at this build's cost; cancel them.
 concurrency:
@@ -17,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install clang-format
         run: sudo apt-get update && sudo apt-get install -y clang-format
       - run: make lint
@@ -29,10 +31,10 @@ jobs:
     # hung build fails fast.
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
       - name: Build the test image (bridge stage)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: bridge
@@ -43,7 +45,7 @@ jobs:
       - name: Run the smoke suite
         run: make docker-test-run
       - name: Build the runtime image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           tags: foxglove-bridge-ros1
