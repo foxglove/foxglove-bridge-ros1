@@ -16,12 +16,12 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstring>
 #include <future>
 #include <map>
 #include <memory>
-#include <mutex>
-#include <set>
 #include <string>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -137,6 +137,44 @@ bool topicHasPublisher(const std::string& topic) {
   });
 }
 
+// Whether `node` is registered with the master as a subscriber of `topic`.
+bool nodeSubscribesTo(const std::string& node, const std::string& topic) {
+  XmlRpc::XmlRpcValue request = ros::this_node::getName();
+  XmlRpc::XmlRpcValue response;
+  XmlRpc::XmlRpcValue payload;
+  if (!ros::master::execute("getSystemState", request, response, payload, false)) {
+    throw std::runtime_error("getSystemState failed");
+  }
+  // payload: [publishers, subscribers, services], each [[name, [nodes...]], ...].
+  XmlRpc::XmlRpcValue& subscribers = payload[1];
+  for (int i = 0; i < subscribers.size(); ++i) {
+    if (static_cast<std::string>(subscribers[i][0]) != topic) {
+      continue;
+    }
+    XmlRpc::XmlRpcValue& nodes = subscribers[i][1];
+    for (int j = 0; j < nodes.size(); ++j) {
+      if (static_cast<std::string>(nodes[j]) == node) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Polls the master until `node` no longer subscribes to `topic`.
+bool waitForNodeUnsubscribed(
+  const std::string& node, const std::string& topic, std::chrono::seconds timeout
+) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (!nodeSubscribesTo(node, topic)) {
+      return true;
+    }
+    std::this_thread::sleep_for(100ms);
+  }
+  return false;
+}
+
 // Waits for a serviceCallFailure for `callId`; resolves with the message.
 std::future<std::string> waitForServiceCallFailure(Client& client, uint32_t callId) {
   auto promise = std::make_shared<std::promise<std::string>>();
@@ -230,8 +268,10 @@ TEST(SmokeTest, ResubscribeAfterLastUnsubscribe) {
   EXPECT_EQ(deserializeRos1String(msg1Future.get()), "resubscribed");
   client->unsubscribe({1});
 
-  // The unsubscribe and subscribe travel the same connection, so the bridge
-  // handles them in order: the ROS subscription is released and recreated.
+  // Wait for the master to drop the bridge's subscriber, so the next subscribe
+  // can't be served from a lingering latched-message cache.
+  ASSERT_TRUE(waitForNodeUnsubscribed("/foxglove_bridge", "/smoke/resubscribe", DEFAULT_TIMEOUT));
+
   auto msg2Future = client->waitForChannelMsg(2);
   client->subscribe({{2, channel.id}});
   ASSERT_EQ(std::future_status::ready, msg2Future.wait_for(DEFAULT_TIMEOUT));
@@ -415,7 +455,6 @@ TEST(SmokeTest, InvalidClientAdvertisementsRejected) {
   foxglove::test::ClientAdvertisement duplicateAd = validAd;
   duplicateAd.topic = "/smoke/rejected_duplicate";
 
-  StringSink jsonSink(nh, jsonAd.topic);
   StringSink acceptedSink(nh, validAd.topic);
 
   client->advertise({jsonAd});
@@ -442,7 +481,6 @@ TEST(SmokeTest, InvalidClientAdvertisementsRejected) {
   EXPECT_FALSE(topicHasPublisher(jsonAd.topic));
   EXPECT_FALSE(topicHasPublisher(unknownTypeAd.topic));
   EXPECT_FALSE(topicHasPublisher(duplicateAd.topic));
-  EXPECT_EQ(std::future_status::timeout, jsonSink.future.wait_for(0s));
 }
 
 TEST(SmokeTest, ServiceCall) {
