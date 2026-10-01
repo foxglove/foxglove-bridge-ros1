@@ -521,6 +521,21 @@ void Ros1FoxgloveBridge::updateAdvertisedTopics(const std::vector<TopicAndDataty
         channelIt++;
       }
     }
+  }
+
+  // Finish tearing down removed channels before advertising replacements. A
+  // retyped topic gets a new channel, and a client may subscribe to it as soon
+  // as it is advertised; if the old ros::Subscriber were still alive, roscpp
+  // would attach the new subscriber to the existing per-topic subscription,
+  // whose md5sum is locked to the old type, so the new publisher would reject
+  // it and the channel would never receive data.
+  for (auto& channel : channelsToClose) {
+    channel.close();
+  }
+  subscriptionsToRelease.clear();
+
+  {
+    std::lock_guard<std::mutex> lock(_subscriptionsMutex);
 
     // Advertise new topics
     for (const auto& [topic, datatype] : latestTopics) {
@@ -569,10 +584,6 @@ void Ros1FoxgloveBridge::updateAdvertisedTopics(const std::vector<TopicAndDataty
       );
       _channels.insert({channelId, std::move(channelResult.value())});
     }
-  }
-
-  for (auto& channel : channelsToClose) {
-    channel.close();
   }
 }
 
