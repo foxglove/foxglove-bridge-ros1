@@ -96,7 +96,6 @@ jobs:
           outputs: type=image,name=${{ env.DOCKER_REPO }},push-by-digest=true,name-canonical=true,push=true
           # Same per-arch scopes as ci.yml, so the Noetic stage is reused.
           cache-from: type=gha,scope=${{ matrix.arch }}
-          cache-to: type=gha,scope=${{ matrix.arch }},mode=max
 
       - name: Export digest
         run: |
