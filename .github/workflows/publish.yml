@@ -43,9 +43,10 @@ jobs:
   build:
     name: build (${{ matrix.arch }})
     needs: [check-version, ci]
-    # check-version is skipped on manual dispatch; without always() that skip
-    # would cascade and skip this job too.
-    if: ${{ always() && needs.ci.result == 'success' && (needs.check-version.result == 'success' || needs.check-version.result == 'skipped') }}
+    # check-version is skipped on manual dispatch; without a status function
+    # that skip would cascade and skip this job too. !cancelled() rather than
+    # always() so cancelling the run still stops the job.
+    if: ${{ !cancelled() && needs.ci.result == 'success' && (needs.check-version.result == 'success' || needs.check-version.result == 'skipped') }}
     strategy:
       matrix:
         include:
@@ -108,13 +109,15 @@ jobs:
           name: digests-${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
-          retention-days: 1
+          # Long enough that re-running a failed architecture days later still
+          # finds the other architecture's digest.
+          retention-days: 7
 
   merge:
     needs: [build]
     # The skipped check-version upstream would otherwise skip this job too.
     # The matrix job's result is success only if every architecture succeeded.
-    if: ${{ always() && needs.build.result == 'success' }}
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -161,6 +164,10 @@ jobs:
           set -euo pipefail
           sources=()
           for digest in *; do sources+=("${DOCKER_REPO}@sha256:${digest}"); done
+          if [[ ${#sources[@]} -ne 2 ]]; then
+            echo "::error::Expected 2 digests (amd64, arm64), found ${#sources[@]}: ${sources[*]}"
+            exit 1
+          fi
           docker buildx imagetools create -t "${{ steps.compute-tag.outputs.tag }}" "${sources[@]}"
           docker buildx imagetools inspect "${{ steps.compute-tag.outputs.tag }}"
 
