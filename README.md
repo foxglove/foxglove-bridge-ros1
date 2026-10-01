@@ -217,7 +217,7 @@ both the SDK and the bridge are picked up without rebuilding the image.
 - **Schemas/md5sums** come from `ros_babel_fish`'s integrated description
   provider (disk lookup at advertise time), following the legacy
   `foxglove/ros-foxglove-bridge` design.
-- **Topic/service/graph discovery** polls the master (`getTopicTypes`,
+- **Topic/service/graph discovery** polls the master (`getPublishedTopics`,
   `getSystemState`) with exponential backoff (100 ms doubling up to
   `~max_update_ms`, default 5000 ms).
 - **Subscriptions** use `topic_tools::ShapeShifter` and forward raw serialized

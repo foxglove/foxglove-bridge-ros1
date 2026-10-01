@@ -356,16 +356,19 @@ void Ros1FoxgloveBridge::pollThread() {
         _transports->hasCapability(foxglove::WebSocketServerCapabilities::Services);
       const bool querySystemState = servicesEnabled || _graphSubscriptionCount > 0;
 
-      // Topics, via getTopicTypes.
+      // Topics with at least one publisher, via getPublishedTopics.
       std::vector<TopicAndDatatype> topics;
+      bool topicsRetrieved = false;
       {
         XmlRpc::XmlRpcValue params, result, payload;
         params[0] = ros::this_node::getName();
-        if (ros::master::execute("getTopicTypes", params, result, payload, false)) {
+        params[1] = "";  // Subgraph: all topics.
+        if (ros::master::execute("getPublishedTopics", params, result, payload, false)) {
           topics.reserve(static_cast<size_t>(payload.size()));
           for (int i = 0; i < payload.size(); ++i) {
             topics.emplace_back(std::string(payload[i][0]), std::string(payload[i][1]));
           }
+          topicsRetrieved = true;
         } else {
           ROS_WARN("Failed to retrieve topics from ROS master");
         }
@@ -374,6 +377,7 @@ void Ros1FoxgloveBridge::pollThread() {
       // Services and connection graph, via getSystemState.
       std::vector<std::string> serviceNames;
       foxglove::ConnectionGraph connectionGraph;
+      bool systemStateRetrieved = false;
       if (querySystemState) {
         XmlRpc::XmlRpcValue params, result, payload;
         params[0] = ros::this_node::getName();
@@ -411,16 +415,22 @@ void Ros1FoxgloveBridge::pollThread() {
               );
             }
           }
+          systemStateRetrieved = true;
         } else {
           ROS_WARN("Failed to retrieve system state from ROS master");
         }
       }
 
-      updateAdvertisedTopics(topics);
-      if (servicesEnabled) {
+      // Skip each update whose master query failed: an empty list would close
+      // every channel/service (or blank the graph) until the next successful
+      // poll.
+      if (topicsRetrieved) {
+        updateAdvertisedTopics(topics);
+      }
+      if (servicesEnabled && systemStateRetrieved) {
         updateAdvertisedServices(serviceNames);
       }
-      if (_graphSubscriptionCount > 0) {
+      if (_graphSubscriptionCount > 0 && systemStateRetrieved) {
         _transports->publishConnectionGraph(connectionGraph);
       }
     } catch (const XmlRpc::XmlRpcException& ex) {
@@ -895,7 +905,8 @@ void Ros1FoxgloveBridge::onClientAdvertise(
   ad.messageDefinition = msgDescription->message_definition;
   _clientAdvertisedTopics.emplace(key, std::move(ad));
 
-  // Wake the poll thread so other clients learn about the new topic promptly.
+  // The new publisher makes this a published ROS topic; wake the poll thread
+  // so discovery picks it up now rather than after the backoff.
   pokePoll();
 }
 

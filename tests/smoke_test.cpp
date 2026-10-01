@@ -4,18 +4,24 @@
 
 #include <arpa/inet.h>
 #include <gtest/gtest.h>
+#include <ros/master.h>
 #include <ros/ros.h>
 #include <roscpp/GetLoggers.h>
 #include <rosgraph_msgs/Clock.h>
+#include <std_msgs/Int32.h>
 #include <std_msgs/String.h>
 #include <sys/socket.h>
 #include <websocketpp/config/asio_client.hpp>
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <cstring>
 #include <future>
 #include <map>
 #include <memory>
 #include <string>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -83,6 +89,107 @@ bool waitForServer(uint16_t port, std::chrono::seconds timeout) {
   return false;
 }
 
+// Publish `payload` on a client channel until `future` resolves (ROS 1
+// subscriber connection setup takes a moment) or DEFAULT_TIMEOUT passes.
+template<typename T>
+std::future_status publishUntilReceived(
+  Client& client, foxglove::test::ClientChannelId channelId, const std::vector<uint8_t>& payload,
+  std::future<T>& future
+) {
+  const auto deadline = std::chrono::steady_clock::now() + DEFAULT_TIMEOUT;
+  std::future_status status = std::future_status::timeout;
+  while (status != std::future_status::ready && std::chrono::steady_clock::now() < deadline) {
+    client.publish(channelId, payload.data(), payload.size());
+    status = future.wait_for(500ms);
+  }
+  return status;
+}
+
+// A ROS subscriber on `topic` whose future resolves with the first message.
+struct StringSink {
+  std::shared_ptr<std::promise<std::string>> promise =
+    std::make_shared<std::promise<std::string>>();
+  std::future<std::string> future = promise->get_future();
+  ros::Subscriber subscriber;
+
+  StringSink(ros::NodeHandle& nh, const std::string& topic) {
+    auto fulfilled = std::make_shared<std::atomic<bool>>(false);
+    auto p = promise;
+    subscriber = nh.subscribe<std_msgs::String>(
+      topic,
+      10,
+      [p, fulfilled](const std_msgs::String::ConstPtr& msg) {
+        if (!fulfilled->exchange(true)) {
+          p->set_value(msg->data);
+        }
+      }
+    );
+  }
+};
+
+bool topicHasPublisher(const std::string& topic) {
+  ros::master::V_TopicInfo topics;
+  if (!ros::master::getTopics(topics)) {
+    throw std::runtime_error("getTopics failed");
+  }
+  return std::any_of(topics.begin(), topics.end(), [&](const auto& info) {
+    return info.name == topic;
+  });
+}
+
+// Whether `node` is registered with the master as a subscriber of `topic`.
+bool nodeSubscribesTo(const std::string& node, const std::string& topic) {
+  XmlRpc::XmlRpcValue request = ros::this_node::getName();
+  XmlRpc::XmlRpcValue response;
+  XmlRpc::XmlRpcValue payload;
+  if (!ros::master::execute("getSystemState", request, response, payload, false)) {
+    throw std::runtime_error("getSystemState failed");
+  }
+  // payload: [publishers, subscribers, services], each [[name, [nodes...]], ...].
+  XmlRpc::XmlRpcValue& subscribers = payload[1];
+  for (int i = 0; i < subscribers.size(); ++i) {
+    if (static_cast<std::string>(subscribers[i][0]) != topic) {
+      continue;
+    }
+    XmlRpc::XmlRpcValue& nodes = subscribers[i][1];
+    for (int j = 0; j < nodes.size(); ++j) {
+      if (static_cast<std::string>(nodes[j]) == node) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Polls the master until `node` no longer subscribes to `topic`.
+bool waitForNodeUnsubscribed(
+  const std::string& node, const std::string& topic, std::chrono::seconds timeout
+) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (!nodeSubscribesTo(node, topic)) {
+      return true;
+    }
+    std::this_thread::sleep_for(100ms);
+  }
+  return false;
+}
+
+// Waits for a serviceCallFailure for `callId`; resolves with the message.
+std::future<std::string> waitForServiceCallFailure(Client& client, uint32_t callId) {
+  auto promise = std::make_shared<std::promise<std::string>>();
+  auto future = promise->get_future();
+  auto fulfilled = std::make_shared<std::atomic<bool>>(false);
+  client.setTextMessageHandler([promise, fulfilled, callId](const std::string& payload) {
+    const auto msg = nlohmann::json::parse(payload);
+    if (msg.value("op", "") == "serviceCallFailure" && msg.value("callId", 0u) == callId &&
+        !fulfilled->exchange(true)) {
+      promise->set_value(msg.value("message", ""));
+    }
+  });
+  return future;
+}
+
 }  // namespace
 
 TEST(SmokeTest, TopicSubscription) {
@@ -138,6 +245,148 @@ TEST(SmokeTest, LatchedTopicReplayToLateSubscriber) {
   EXPECT_EQ(deserializeRos1String(msg2Future.get()), "latched state");
 }
 
+TEST(SmokeTest, ResubscribeAfterLastUnsubscribe) {
+  // When the last client unsubscribes, the bridge tears down the shared ROS
+  // subscription and its latched-message cache. A subsequent subscriber gets
+  // a fresh ROS subscription, and the latched message must again arrive from
+  // ROS itself.
+  ros::NodeHandle nh;
+  auto publisher = nh.advertise<std_msgs::String>("/smoke/resubscribe", 1, /*latch=*/true);
+  std_msgs::String rosMsg;
+  rosMsg.data = "resubscribed";
+  publisher.publish(rosMsg);
+
+  auto client = std::make_shared<Client>();
+  auto channelFuture = client->waitForChannel("/smoke/resubscribe");
+  ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
+  ASSERT_EQ(std::future_status::ready, channelFuture.wait_for(DISCOVERY_TIMEOUT));
+  const auto channel = channelFuture.get();
+
+  auto msg1Future = client->waitForChannelMsg(1);
+  client->subscribe({{1, channel.id}});
+  ASSERT_EQ(std::future_status::ready, msg1Future.wait_for(DEFAULT_TIMEOUT));
+  EXPECT_EQ(deserializeRos1String(msg1Future.get()), "resubscribed");
+  client->unsubscribe({1});
+
+  // Wait for the master to drop the bridge's subscriber, so the next subscribe
+  // can't be served from a lingering latched-message cache.
+  ASSERT_TRUE(waitForNodeUnsubscribed("/foxglove_bridge", "/smoke/resubscribe", DEFAULT_TIMEOUT));
+
+  auto msg2Future = client->waitForChannelMsg(2);
+  client->subscribe({{2, channel.id}});
+  ASSERT_EQ(std::future_status::ready, msg2Future.wait_for(DEFAULT_TIMEOUT));
+  EXPECT_EQ(deserializeRos1String(msg2Future.get()), "resubscribed");
+}
+
+TEST(SmokeTest, TopicRemovedWhenPublisherGoes) {
+  // A channel must be unadvertised once its last publisher goes away, even
+  // while a client is subscribed to it.
+  ros::NodeHandle nh;
+  auto publisher = nh.advertise<std_msgs::String>("/smoke/vanishing", 1, /*latch=*/true);
+  std_msgs::String rosMsg;
+  rosMsg.data = "here for now";
+  publisher.publish(rosMsg);
+
+  auto client = std::make_shared<Client>();
+  auto channelFuture = client->waitForChannel("/smoke/vanishing");
+  ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
+  ASSERT_EQ(std::future_status::ready, channelFuture.wait_for(DISCOVERY_TIMEOUT));
+  const auto channel = channelFuture.get();
+
+  auto msgFuture = client->waitForChannelMsg(1);
+  client->subscribe({{1, channel.id}});
+  ASSERT_EQ(std::future_status::ready, msgFuture.wait_for(DEFAULT_TIMEOUT));
+
+  auto unadvertisePromise = std::make_shared<std::promise<void>>();
+  auto unadvertiseFuture = unadvertisePromise->get_future();
+  auto fulfilled = std::make_shared<std::atomic<bool>>(false);
+  client->setTextMessageHandler(
+    [unadvertisePromise, fulfilled, channelId = channel.id](const std::string& payload) {
+      const auto msg = nlohmann::json::parse(payload);
+      if (msg.value("op", "") != "unadvertise") {
+        return;
+      }
+      for (const auto& id : msg["channelIds"]) {
+        if (id.get<foxglove::test::ChannelId>() == channelId && !fulfilled->exchange(true)) {
+          unadvertisePromise->set_value();
+        }
+      }
+    }
+  );
+
+  publisher.shutdown();
+  EXPECT_EQ(std::future_status::ready, unadvertiseFuture.wait_for(DISCOVERY_TIMEOUT))
+    << "channel for /smoke/vanishing was not unadvertised after its publisher left";
+}
+
+TEST(SmokeTest, TopicTypeChangeWhileSubscribed) {
+  // Re-advertising a topic with a different type replaces its channel. This
+  // exercises channel removal with a live client subscription: the bridge
+  // must close the channel (firing onUnsubscribe for the subscriber) without
+  // deadlocking, then advertise and serve the new channel.
+  ros::NodeHandle nh;
+  auto stringPublisher = nh.advertise<std_msgs::String>("/smoke/retyped", 1, /*latch=*/true);
+  std_msgs::String stringMsg;
+  stringMsg.data = "as a string";
+  stringPublisher.publish(stringMsg);
+
+  auto client = std::make_shared<Client>();
+  auto channelFuture = client->waitForChannel("/smoke/retyped");
+  ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
+  ASSERT_EQ(std::future_status::ready, channelFuture.wait_for(DISCOVERY_TIMEOUT));
+  const auto oldChannel = channelFuture.get();
+  ASSERT_EQ(oldChannel.schemaName, "std_msgs/String");
+
+  auto msgFuture = client->waitForChannelMsg(1);
+  client->subscribe({{1, oldChannel.id}});
+  ASSERT_EQ(std::future_status::ready, msgFuture.wait_for(DEFAULT_TIMEOUT));
+
+  // Track the old channel's unadvertisement and the new channel's
+  // advertisement, which may arrive in either order.
+  auto unadvertisePromise = std::make_shared<std::promise<void>>();
+  auto unadvertiseFuture = unadvertisePromise->get_future();
+  auto newChannelPromise = std::make_shared<std::promise<foxglove::test::Channel>>();
+  auto newChannelFuture = newChannelPromise->get_future();
+  auto unadvertised = std::make_shared<std::atomic<bool>>(false);
+  auto advertised = std::make_shared<std::atomic<bool>>(false);
+  client->setTextMessageHandler([=, oldId = oldChannel.id](const std::string& payload) {
+    const auto msg = nlohmann::json::parse(payload);
+    const auto op = msg.value("op", "");
+    if (op == "unadvertise") {
+      for (const auto& id : msg["channelIds"]) {
+        if (id.get<foxglove::test::ChannelId>() == oldId && !unadvertised->exchange(true)) {
+          unadvertisePromise->set_value();
+        }
+      }
+    } else if (op == "advertise") {
+      for (const auto& channel : msg["channels"].get<std::vector<foxglove::test::Channel>>()) {
+        if (channel.topic == "/smoke/retyped" && channel.schemaName == "std_msgs/Int32" &&
+            !advertised->exchange(true)) {
+          newChannelPromise->set_value(channel);
+        }
+      }
+    }
+  });
+
+  stringPublisher.shutdown();
+  auto intPublisher = nh.advertise<std_msgs::Int32>("/smoke/retyped", 1, /*latch=*/true);
+  std_msgs::Int32 intMsg;
+  intMsg.data = 1234;
+  intPublisher.publish(intMsg);
+
+  ASSERT_EQ(std::future_status::ready, unadvertiseFuture.wait_for(DISCOVERY_TIMEOUT));
+  ASSERT_EQ(std::future_status::ready, newChannelFuture.wait_for(DISCOVERY_TIMEOUT));
+  const auto newChannel = newChannelFuture.get();
+  EXPECT_NE(newChannel.id, oldChannel.id);
+
+  auto intFuture = client->waitForChannelMsg(2);
+  client->subscribe({{2, newChannel.id}});
+  ASSERT_EQ(std::future_status::ready, intFuture.wait_for(DEFAULT_TIMEOUT));
+  const auto data = intFuture.get();
+  ASSERT_EQ(data.size(), 4u);
+  EXPECT_EQ(foxglove::test::ReadUint32LE(data.data()), 1234u);
+}
+
 TEST(SmokeTest, ClientPublish) {
   ros::NodeHandle nh;
   auto promise = std::make_shared<std::promise<std::string>>();
@@ -174,6 +423,64 @@ TEST(SmokeTest, ClientPublish) {
   ASSERT_EQ(std::future_status::ready, status);
   EXPECT_EQ(future.get(), "hello from client");
   client->unadvertise({advertisement.channelId});
+}
+
+TEST(SmokeTest, InvalidClientAdvertisementsRejected) {
+  // Advertisements the bridge cannot serve must not create ROS publishers,
+  // and must not break the client's connection or the bridge.
+  ros::NodeHandle nh;
+  auto client = std::make_shared<Client>();
+  ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
+
+  // Unsupported message encoding.
+  foxglove::test::ClientAdvertisement jsonAd;
+  jsonAd.channelId = 1;
+  jsonAd.topic = "/smoke/rejected_json";
+  jsonAd.encoding = "json";
+  jsonAd.schemaName = "std_msgs/String";
+
+  // Unknown message type.
+  foxglove::test::ClientAdvertisement unknownTypeAd;
+  unknownTypeAd.channelId = 2;
+  unknownTypeAd.topic = "/smoke/rejected_unknown_type";
+  unknownTypeAd.encoding = "ros1";
+  unknownTypeAd.schemaName = "no_such_pkg/NoSuchType";
+
+  // A valid advertisement, followed by a second one reusing its channel ID.
+  foxglove::test::ClientAdvertisement validAd;
+  validAd.channelId = 3;
+  validAd.topic = "/smoke/accepted";
+  validAd.encoding = "ros1";
+  validAd.schemaName = "std_msgs/String";
+  foxglove::test::ClientAdvertisement duplicateAd = validAd;
+  duplicateAd.topic = "/smoke/rejected_duplicate";
+
+  StringSink acceptedSink(nh, validAd.topic);
+
+  client->advertise({jsonAd});
+  client->advertise({unknownTypeAd});
+  client->advertise({validAd});
+  client->advertise({duplicateAd});
+
+  // Publishing on the rejected JSON channel must be dropped.
+  const std::string jsonPayload = R"({"data": "should be dropped"})";
+  client->publish(
+    jsonAd.channelId, reinterpret_cast<const uint8_t*>(jsonPayload.data()), jsonPayload.size()
+  );
+
+  // The valid channel still works, and still publishes on its original topic.
+  // Client messages are handled in order, so once this arrives, every
+  // advertisement above has been processed.
+  const auto payload = serializeRos1String("still works");
+  ASSERT_EQ(
+    std::future_status::ready,
+    publishUntilReceived(*client, validAd.channelId, payload, acceptedSink.future)
+  );
+  EXPECT_EQ(acceptedSink.future.get(), "still works");
+
+  EXPECT_FALSE(topicHasPublisher(jsonAd.topic));
+  EXPECT_FALSE(topicHasPublisher(unknownTypeAd.topic));
+  EXPECT_FALSE(topicHasPublisher(duplicateAd.topic));
 }
 
 TEST(SmokeTest, ServiceCall) {
@@ -249,6 +556,60 @@ TEST(SmokeTest, ServiceCallTimeout) {
 
   // Unblock the hung handler so it doesn't stall suite teardown.
   release->set_value();
+}
+
+TEST(SmokeTest, ServiceCallErrors) {
+  // Each failure mode must produce a serviceCallFailure for the right call.
+  ros::NodeHandle nh;
+  boost::function<bool(roscpp::GetLoggers::Request&, roscpp::GetLoggers::Response&)>
+    failingCallback = [](roscpp::GetLoggers::Request&, roscpp::GetLoggers::Response&) {
+      return false;
+    };
+  auto failingServer = nh.advertiseService("/smoke/failing_service", failingCallback);
+
+  auto client = std::make_shared<Client>();
+  auto serviceFuture = client->waitForService("/smoke/failing_service");
+  ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
+  ASSERT_EQ(std::future_status::ready, serviceFuture.wait_for(DISCOVERY_TIMEOUT));
+  const auto failingService = serviceFuture.get();
+
+  // The ROS service handler reports failure.
+  {
+    auto failureFuture = waitForServiceCallFailure(*client, 1);
+    foxglove::test::ServiceRequest request;
+    request.serviceId = failingService.id;
+    request.callId = 1;
+    request.encoding = "ros1";
+    client->sendServiceRequest(request);
+    ASSERT_EQ(std::future_status::ready, failureFuture.wait_for(DEFAULT_TIMEOUT));
+    EXPECT_NE(failureFuture.get().find("Failed to call service"), std::string::npos);
+  }
+
+  // A request in an encoding other than ros1.
+  {
+    auto failureFuture = waitForServiceCallFailure(*client, 2);
+    foxglove::test::ServiceRequest request;
+    request.serviceId = failingService.id;
+    request.callId = 2;
+    request.encoding = "json";
+    const std::string body = "{}";
+    for (const char c : body) {
+      request.data.push_back(static_cast<std::byte>(c));
+    }
+    client->sendServiceRequest(request);
+    ASSERT_EQ(std::future_status::ready, failureFuture.wait_for(DEFAULT_TIMEOUT));
+  }
+
+  // A service ID the bridge never advertised.
+  {
+    auto failureFuture = waitForServiceCallFailure(*client, 3);
+    foxglove::test::ServiceRequest request;
+    request.serviceId = 999999;
+    request.callId = 3;
+    request.encoding = "ros1";
+    client->sendServiceRequest(request);
+    ASSERT_EQ(std::future_status::ready, failureFuture.wait_for(DEFAULT_TIMEOUT));
+  }
 }
 
 TEST(SmokeTest, Parameters) {
@@ -423,6 +784,109 @@ TEST(SmokeTest, ParameterTypes) {
   ASSERT_TRUE(nh.getParam("/types/set_dict", mDict));
   ASSERT_EQ(mDict.getType(), XmlRpc::XmlRpcValue::TypeStruct);
   EXPECT_EQ(static_cast<int>(mDict["k"]), 5);
+}
+
+TEST(SmokeTest, GetNonexistentParameters) {
+  auto client = std::make_shared<Client>();
+  ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
+
+  auto future = client->waitForParameters("get-missing");
+  client->getParameters({"/smoke/no_such_param", "/smoke/no_such/nested"}, "get-missing");
+  ASSERT_EQ(std::future_status::ready, future.wait_for(DEFAULT_TIMEOUT));
+  EXPECT_TRUE(future.get().empty());
+}
+
+TEST(SmokeTest, UnsetParameter) {
+  // A set with no value deletes the parameter from the master.
+  ros::NodeHandle nh;
+  nh.setParam("/smoke/deletable", true);
+
+  auto client = std::make_shared<Client>();
+  ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
+
+  std::vector<foxglove::Parameter> toUnset;
+  toUnset.emplace_back("/smoke/deletable");
+  auto future = client->waitForParameters("unset-1");
+  client->setParameters(toUnset, "unset-1");
+  ASSERT_EQ(std::future_status::ready, future.wait_for(DEFAULT_TIMEOUT));
+  EXPECT_TRUE(future.get().empty());
+  EXPECT_FALSE(nh.hasParam("/smoke/deletable"));
+}
+
+TEST(SmokeTest, SetFloatParameterWithIntegerValue) {
+  // A whole-valued float may arrive as a JSON integer with a float64 type
+  // hint; it must be stored on the master as a double, not an int.
+  ros::NodeHandle nh;
+  auto client = std::make_shared<Client>();
+  ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
+
+  auto future = client->waitForParameters("set-float-int");
+  const nlohmann::json::array_t parameters = {
+    {{"name", "/smoke/float_from_int"}, {"value", 10}, {"type", "float64"}},
+  };
+  client->sendText(nlohmann::json{
+    {"op", "setParameters"}, {"id", "set-float-int"}, {"parameters", parameters}
+  }.dump());
+  ASSERT_EQ(std::future_status::ready, future.wait_for(DEFAULT_TIMEOUT));
+
+  XmlRpc::XmlRpcValue value;
+  ASSERT_TRUE(nh.getParam("/smoke/float_from_int", value));
+  ASSERT_EQ(value.getType(), XmlRpc::XmlRpcValue::TypeDouble);
+  EXPECT_DOUBLE_EQ(static_cast<double>(value), 10.0);
+}
+
+TEST(SmokeTest, ParameterUnsubscribeStopsUpdates) {
+  constexpr char kParam[] = "/smoke/unsub_param";
+  ros::NodeHandle nh;
+  nh.setParam(kParam, "initial");
+
+  auto client = std::make_shared<Client>();
+  ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
+
+  // Subscribe and confirm pushes arrive (see the Parameters test for why the
+  // set is repeated).
+  client->subscribeParameterUpdates({kParam});
+  auto updateFuture = client->waitForParameters();
+  const auto deadline = std::chrono::steady_clock::now() + DEFAULT_TIMEOUT;
+  std::future_status status = std::future_status::timeout;
+  while (status != std::future_status::ready && std::chrono::steady_clock::now() < deadline) {
+    nh.setParam(kParam, "subscribed");
+    status = updateFuture.wait_for(500ms);
+  }
+  ASSERT_EQ(std::future_status::ready, status);
+
+  // Unsubscribe, then round-trip a get: the bridge serializes parameter ops
+  // on one worker, so once the get is answered the master unsubscribe has
+  // been issued.
+  client->unsubscribeParameterUpdates({kParam});
+  auto syncFuture = client->waitForParameters("unsub-sync");
+  client->getParameters({kParam}, "unsub-sync");
+  ASSERT_EQ(std::future_status::ready, syncFuture.wait_for(DEFAULT_TIMEOUT));
+
+  auto staleFuture = client->waitForParameters();
+  nh.setParam(kParam, "unsubscribed");
+  EXPECT_EQ(std::future_status::timeout, staleFuture.wait_for(2s))
+    << "received a parameter update after unsubscribing";
+}
+
+TEST(SmokeTest, BridgeOwnParametersNotWritable) {
+  constexpr char kDeviceToken[] = "/foxglove_bridge/device_token";
+  ros::NodeHandle nh;
+  auto client = std::make_shared<Client>();
+  ASSERT_EQ(std::future_status::ready, client->connect(URI).wait_for(DEFAULT_TIMEOUT));
+
+  std::vector<foxglove::Parameter> toSet;
+  toSet.emplace_back(kDeviceToken, "overwritten_by_client");
+  toSet.emplace_back("/foxglove_bridge/port");
+  auto future = client->waitForParameters("set-own");
+  client->setParameters(toSet, "set-own");
+  ASSERT_EQ(std::future_status::ready, future.wait_for(DEFAULT_TIMEOUT));
+  EXPECT_TRUE(future.get().empty());
+
+  std::string token;
+  ASSERT_TRUE(nh.getParam(kDeviceToken, token));
+  EXPECT_EQ(token, "fox_dt_smoke_test_secret");
+  EXPECT_TRUE(nh.hasParam("/foxglove_bridge/port"));
 }
 
 TEST(SmokeTest, FetchAsset) {
