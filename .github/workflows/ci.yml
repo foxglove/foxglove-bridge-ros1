@@ -25,7 +25,16 @@ jobs:
       - run: make lint
 
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     # Stage 1 of the Dockerfile builds Noetic from source, which dominates the
     # runtime on a cold cache; cap the job well below the 6-hour default so a
     # hung build fails fast.
@@ -40,8 +49,10 @@ jobs:
           target: bridge
           tags: foxglove-bridge-ros1-build
           load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Per-arch scopes keep the two architectures from evicting each
+          # other's layers; publish.yml reads the same scopes.
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.arch }},mode=max
       - name: Run the smoke suite
         run: make docker-test-run
       - name: Build the runtime image
@@ -50,8 +61,8 @@ jobs:
           context: .
           tags: foxglove-bridge-ros1
           load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.arch }},mode=max
       - name: Boot-check the runtime image
         run: |
           docker run --rm foxglove-bridge-ros1 bash -c "\
