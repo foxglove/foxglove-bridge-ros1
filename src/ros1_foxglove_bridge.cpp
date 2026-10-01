@@ -356,9 +356,7 @@ void Ros1FoxgloveBridge::pollThread() {
         _transports->hasCapability(foxglove::WebSocketServerCapabilities::Services);
       const bool querySystemState = servicesEnabled || _graphSubscriptionCount > 0;
 
-      // Topics with at least one publisher, via getPublishedTopics (as in the
-      // legacy bridge). getTopicTypes is not a substitute: the master never
-      // drops entries from it, so channels would outlive their publishers.
+      // Topics with at least one publisher, via getPublishedTopics.
       std::vector<TopicAndDatatype> topics;
       bool topicsRetrieved = false;
       {
@@ -379,6 +377,7 @@ void Ros1FoxgloveBridge::pollThread() {
       // Services and connection graph, via getSystemState.
       std::vector<std::string> serviceNames;
       foxglove::ConnectionGraph connectionGraph;
+      bool systemStateRetrieved = false;
       if (querySystemState) {
         XmlRpc::XmlRpcValue params, result, payload;
         params[0] = ros::this_node::getName();
@@ -416,20 +415,22 @@ void Ros1FoxgloveBridge::pollThread() {
               );
             }
           }
+          systemStateRetrieved = true;
         } else {
           ROS_WARN("Failed to retrieve system state from ROS master");
         }
       }
 
-      // Skip the topic update on failure (as the legacy bridge does): an empty
-      // list would close every channel until the next successful poll.
+      // Skip each update whose master query failed: an empty list would close
+      // every channel/service (or blank the graph) until the next successful
+      // poll.
       if (topicsRetrieved) {
         updateAdvertisedTopics(topics);
       }
-      if (servicesEnabled) {
+      if (servicesEnabled && systemStateRetrieved) {
         updateAdvertisedServices(serviceNames);
       }
-      if (_graphSubscriptionCount > 0) {
+      if (_graphSubscriptionCount > 0 && systemStateRetrieved) {
         _transports->publishConnectionGraph(connectionGraph);
       }
     } catch (const XmlRpc::XmlRpcException& ex) {
